@@ -1,0 +1,30 @@
+# Custom Tools Directory
+
+This directory is for user-defined custom tools.
+
+Each tool should:
+1. Extend the BaseTool class from ../lib/baseTool.js
+2. Be saved as a .js file
+3. Export the tool class as the default export
+
+Example tool structure:
+```javascript
+const BaseTool = require('../lib/baseTool');
+
+class MyCustomTool extends BaseTool {
+  constructor(context) {
+    super(context);
+    this.name = 'myTool';
+    this.description = 'My custom tool description';
+    // ... other properties
+  }
+
+  async execute(params, messageData) {
+    // Tool implementation
+  }
+}
+
+module.exports = MyCustomTool;
+```
+
+The tools will be automatically loaded at startup and can be hot-reloaded in development mode.

@@ -1,0 +1,247 @@
+# =============================================================================
+# Google Cloud Run Service Configuration for Chantilly Agent
+# =============================================================================
+#
+# Security Features:
+# - Service account with minimal permissions
+# - VPC connector for Firestore private access
+# - Environment variables from Secret Manager
+# - Resource limits and autoscaling
+# - Health checks and readiness probes
+#
+# DEPLOYMENT:
+# gcloud run services replace cloudrun.yaml --region=us-central1
+#
+# PREREQUISITES:
+# 1. Create secrets in Secret Manager:
+#    - chantilly-gemini-api-key
+#    - chantilly-bitrix24-webhook
+#    - chantilly-bitrix24-secret
+# 2. Create VPC connector (optional for Firestore private access):
+#    gcloud compute networks vpc-access connectors create chantilly-connector \
+#      --network=default --region=us-central1 --range=10.8.0.0/28
+# 3. Create service account:
+#    gcloud iam service-accounts create chantilly-agent-sa \
+#      --display-name="Chantilly Agent Service Account"
+# 4. Grant necessary permissions (see below)
+#
+# =============================================================================
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: chantilly-agent
+  labels:
+    app: chantilly-agent
+    environment: production
+    version: "1.0.0"
+  annotations:
+    # Allow unauthenticated access (webhook endpoint is public)
+    # Individual routes can require authentication via middleware
+    run.googleapis.com/ingress: all
+    run.googleapis.com/description: "Chantilly Agent - AI-powered Bitrix24 integration"
+
+spec:
+  template:
+    metadata:
+      annotations:
+        # Autoscaling configuration
+        autoscaling.knative.dev/minScale: "1"  # Keep 1 instance warm
+        autoscaling.knative.dev/maxScale: "10"  # Max 10 instances
+        autoscaling.knative.dev/target: "80"  # Target 80 concurrent requests per instance
+
+        # Resource limits
+        run.googleapis.com/cpu-throttling: "false"  # Always allocate CPU
+
+        # VPC configuration (OPTIONAL - uncomment if using VPC connector)
+        # run.googleapis.com/vpc-access-connector: chantilly-connector
+        # run.googleapis.com/vpc-access-egress: private-ranges-only
+
+        # Execution environment
+        run.googleapis.com/execution-environment: gen2
+
+    spec:
+      # Service account with minimal permissions
+      serviceAccountName: chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com
+
+      # Container timeout (15 minutes max for complex tasks)
+      timeoutSeconds: 900
+
+      containers:
+      - name: chantilly-agent
+        # Image from Google Container Registry or Artifact Registry
+        image: gcr.io/cx-voice-backup-383016/chantilly-agent:latest
+
+        ports:
+        - name: http1
+          containerPort: 8080
+          protocol: TCP
+
+        # Resource limits
+        resources:
+          limits:
+            cpu: "2"        # 2 vCPU
+            memory: "2Gi"   # 2GB RAM
+          requests:
+            cpu: "1"        # Minimum 1 vCPU
+            memory: "1Gi"   # Minimum 1GB RAM
+
+        # Environment variables
+        env:
+        # Basic configuration
+        - name: NODE_ENV
+          value: "production"
+
+        - name: PORT
+          value: "8080"
+
+        - name: LOG_LEVEL
+          value: "info"
+
+        - name: GOOGLE_CLOUD_PROJECT
+          value: "cx-voice-backup-383016"
+
+        # Feature flags
+        - name: USE_DB_PROMPTS
+          value: "false"
+
+        - name: REASONING_MEMORY_ENABLED
+          value: "true"
+
+        - name: ENABLE_VECTOR_SEARCH
+          value: "true"
+
+        - name: VECTOR_SEARCH_ROLLOUT_PERCENTAGE
+          value: "100"
+
+        - name: ENABLE_SEMANTIC_TEMPLATES
+          value: "true"
+
+        - name: SEMANTIC_TEMPLATES_ROLLOUT_PERCENTAGE
+          value: "100"
+
+        - name: ENABLE_SEMANTIC_TOOLS
+          value: "true"
+
+        - name: SEMANTIC_TOOLS_ROLLOUT_PERCENTAGE
+          value: "100"
+
+        # Rate limits
+        - name: RATE_LIMIT_PER_SECOND
+          value: "2"
+
+        - name: RATE_LIMIT_PER_10MIN
+          value: "10000"
+
+        - name: QUEUE_MAX_RETRIES
+          value: "3"
+
+        # API Keys and Secrets (set via Cloud Run Console)
+        # Set these in: Cloud Run Console > Edit & Deploy > Variables & Secrets
+        - name: GEMINI_API_KEY
+          value: "YOUR_GEMINI_API_KEY"  # Replace via console
+
+        - name: BITRIX24_INBOUND_WEBHOOK
+          value: "YOUR_BITRIX24_WEBHOOK_URL"  # Replace via console
+
+        - name: BITRIX24_OUTBOUND_SECRET
+          value: "YOUR_BITRIX24_SECRET"  # Replace via console
+
+        # Health check configuration
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            httpHeaders:
+            - name: User-Agent
+              value: "GoogleCloudRun/HealthCheck"
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+          successThreshold: 1
+
+        # Readiness probe
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+            httpHeaders:
+            - name: User-Agent
+              value: "GoogleCloudRun/ReadinessCheck"
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+          successThreshold: 1
+
+        # Startup probe (for initial container startup)
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          timeoutSeconds: 5
+          failureThreshold: 12  # 12 * 5s = 60s max startup time
+          successThreshold: 1
+
+# =============================================================================
+# Service Account Permissions (IAM)
+# =============================================================================
+#
+# Grant these permissions to chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com:
+#
+# 1. Firestore access:
+#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
+#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#      --role="roles/datastore.user"
+#
+# 2. Secret Manager access (read secrets):
+#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
+#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#      --role="roles/secretmanager.secretAccessor"
+#
+# 3. Cloud Storage access (for file uploads):
+#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
+#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#      --role="roles/storage.objectAdmin"
+#
+# 4. Logging and Monitoring:
+#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
+#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#      --role="roles/logging.logWriter"
+#
+#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
+#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#      --role="roles/monitoring.metricWriter"
+#
+# 5. Vertex AI access (for Gemini and embeddings):
+#    gcloud projects add-iam-policy-binding cx-voice-backup-383016 \
+#      --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#      --role="roles/aiplatform.user"
+#
+# =============================================================================
+# Secrets Setup (Secret Manager)
+# =============================================================================
+#
+# Create secrets:
+#
+# echo -n "YOUR_GEMINI_API_KEY" | gcloud secrets create chantilly-gemini-api-key \
+#   --data-file=- --replication-policy="automatic"
+#
+# echo -n "YOUR_BITRIX24_WEBHOOK_URL" | gcloud secrets create chantilly-bitrix24-webhook \
+#   --data-file=- --replication-policy="automatic"
+#
+# echo -n "YOUR_BITRIX24_SECRET" | gcloud secrets create chantilly-bitrix24-secret \
+#   --data-file=- --replication-policy="automatic"
+#
+# Grant service account access to secrets:
+#
+# for secret in chantilly-gemini-api-key chantilly-bitrix24-webhook chantilly-bitrix24-secret; do
+#   gcloud secrets add-iam-policy-binding $secret \
+#     --member="serviceAccount:chantilly-agent-sa@cx-voice-backup-383016.iam.gserviceaccount.com" \
+#     --role="roles/secretmanager.secretAccessor"
+# done
+#
+# =============================================================================

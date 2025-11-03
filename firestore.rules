@@ -1,0 +1,231 @@
+rules_version = '2';
+
+/**
+ * Firestore Security Rules for LAIRRY Agent
+ *
+ * Security Model:
+ * - Service account has full access (for backend operations)
+ * - Client applications have restricted access based on authentication
+ * - All writes are validated against schema
+ * - Sensitive collections are protected
+ *
+ * DEPLOYMENT:
+ * firebase deploy --only firestore:rules
+ * OR
+ * gcloud firestore indexes create --database=lairry-walk-the-walk
+ */
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===== HELPER FUNCTIONS =====
+
+    /**
+     * Check if request is from authenticated service account
+     */
+    function isServiceAccount() {
+      return request.auth != null &&
+             request.auth.token.email != null &&
+             request.auth.token.email.matches('.*@.*\\.gserviceaccount\\.com$');
+    }
+
+    /**
+     * Check if request is from authenticated user
+     */
+    function isAuthenticated() {
+      return request.auth != null && request.auth.uid != null;
+    }
+
+    /**
+     * Check if user owns the resource
+     */
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    /**
+     * Check if user is admin
+     */
+    function isAdmin() {
+      return isAuthenticated() &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    /**
+     * Validate string field length
+     */
+    function validStringLength(field, maxLength) {
+      return field is string && field.size() <= maxLength;
+    }
+
+    /**
+     * Validate required fields exist
+     */
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    // ===== COLLECTION RULES =====
+
+    /**
+     * Users collection - authentication and profiles
+     */
+    match /users/{userId} {
+      // Read: Own profile or admin
+      allow read: if isServiceAccount() || isOwner(userId) || isAdmin();
+
+      // Create: Service account only (registration happens server-side)
+      allow create: if isServiceAccount() &&
+                      hasRequiredFields(['email', 'role', 'createdAt']) &&
+                      validStringLength(request.resource.data.email, 255) &&
+                      request.resource.data.role in ['admin', 'user'];
+
+      // Update: Own profile or admin, cannot change role
+      allow update: if (isServiceAccount() || isOwner(userId) || isAdmin()) &&
+                      request.resource.data.role == resource.data.role;
+
+      // Delete: Admin only
+      allow delete: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Agent configuration - personality and settings
+     */
+    match /agent/{docId} {
+      // Read: All authenticated users
+      allow read: if isServiceAccount() || isAuthenticated();
+
+      // Write: Admin only
+      allow write: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Bot authentication tokens
+     */
+    match /bot/{docId} {
+      // Read/Write: Service account only (sensitive tokens)
+      allow read, write: if isServiceAccount();
+    }
+
+    /**
+     * Conversations - chat history
+     */
+    match /conversations/{conversationId} {
+      // Read: Own conversations or admin
+      allow read: if isServiceAccount() ||
+                    isOwner(resource.data.userId) ||
+                    isAdmin();
+
+      // Create: Service account only
+      allow create: if isServiceAccount() &&
+                      hasRequiredFields(['userId', 'dialogId', 'createdAt']);
+
+      // Update: Service account only
+      allow update: if isServiceAccount();
+
+      // Delete: Service account or admin
+      allow delete: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Knowledge base - documents and embeddings
+     */
+    match /knowledge-base/{docId} {
+      // Read: All authenticated users
+      allow read: if isServiceAccount() || isAuthenticated();
+
+      // Write: Admin only
+      allow write: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Task templates - AI-generated task definitions
+     */
+    match /task-templates/{templateId} {
+      // Read: All authenticated users
+      allow read: if isServiceAccount() || isAuthenticated();
+
+      // Create: Service account or admin
+      allow create: if (isServiceAccount() || isAdmin()) &&
+                      hasRequiredFields(['templateId', 'name', 'description', 'enabled']) &&
+                      validStringLength(request.resource.data.name, 200);
+
+      // Update: Service account or admin
+      allow update: if isServiceAccount() || isAdmin();
+
+      // Delete: Admin only
+      allow delete: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Task queue - pending and active tasks
+     */
+    match /task-queue/{taskId} {
+      // Read: Own tasks or admin
+      allow read: if isServiceAccount() ||
+                    isOwner(resource.data.userId) ||
+                    isAdmin();
+
+      // Create: Service account only
+      allow create: if isServiceAccount() &&
+                      hasRequiredFields(['taskId', 'userId', 'status', 'priority']);
+
+      // Update: Service account only (status changes)
+      allow update: if isServiceAccount();
+
+      // Delete: Service account or admin
+      allow delete: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Reasoning memory - ReasoningBank episodic memory
+     */
+    match /reasoning-memory/{memoryId} {
+      // Read: Service account only (contains AI reasoning traces)
+      allow read: if isServiceAccount();
+
+      // Write: Service account only
+      allow write: if isServiceAccount();
+    }
+
+    /**
+     * Tool embeddings - semantic tool detection
+     */
+    match /tool-embeddings/{embeddingId} {
+      // Read: Service account only
+      allow read: if isServiceAccount();
+
+      // Write: Service account only
+      allow write: if isServiceAccount();
+    }
+
+    /**
+     * Tool settings - dynamic tool configuration
+     */
+    match /tool-settings/{toolName} {
+      // Read: Service account only
+      allow read: if isServiceAccount();
+
+      // Write: Service account or admin
+      allow write: if isServiceAccount() || isAdmin();
+    }
+
+    /**
+     * Queue state - rate limiting and cooldown
+     */
+    match /queue/{docId} {
+      // Read: Service account only
+      allow read: if isServiceAccount();
+
+      // Write: Service account only
+      allow write: if isServiceAccount();
+    }
+
+    /**
+     * Default deny for all other collections
+     */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

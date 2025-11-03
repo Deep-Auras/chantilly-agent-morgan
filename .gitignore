@@ -137,3 +137,41 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+CLAUDE.md
+.claude/
+
+# Google Cloud
+.gcloudignore
+*.serviceaccount.json
+service-account.json
+keyfile.json
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Custom tools (keep the directory but ignore test files)
+tools/*.test.js
+tools/*.spec.js
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.backup
+*.bak
+
+# Docker
+.dockerignore
+
+# Additional security files
+service_account.json
