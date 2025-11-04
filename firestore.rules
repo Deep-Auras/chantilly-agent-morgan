@@ -1,7 +1,7 @@
 rules_version = '2';
 
 /**
- * Firestore Security Rules for LAIRRY Agent
+ * Firestore Security Rules for Chantilly Agents
  *
  * Security Model:
  * - Service account has full access (for backend operations)
