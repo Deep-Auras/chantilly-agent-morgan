@@ -2,7 +2,7 @@
 
 #### Rabshan Rahman Founder @ [DeepAuras.com](http://DeepAuras.com)
 
-**Abstract.** True agentic LLMs would enable organizations to generalize across tasks with minimal supervision. Although model providers continue expanding their offerings, realizing these benefits remains elusive—interoperability is limited and agenticness is questionable. We propose the Chantilly Agent Development Kit (ADK): a solution that maximizes agenticness through battle-tested best practices and leading-edge design. The ADK uses widely available technology and remains agnostic to LLM choice, providing a path for agentic systems to gain the mission-critical functionality needed for production and enterprise use cases.       
+**Abstract.** True agentic AI systems would allow organizations to generalize across tasks with minimal supervision. Although model providers continue expanding their offerings, realizing these benefits remains elusive: interoperability is limited and agenticness is questionable. We propose the Chantilly Agent Development Kit (ADK): a solution that maximizes agenticness through battle-tested best practices and leading-edge design. The ADK uses widely available technology and remains agnostic to LLM choice, providing a path for agentic systems to gain mission-critical functionality needed for production and enterprise use cases.       
 
 ## Introduction
 
