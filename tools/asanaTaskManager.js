@@ -1,0 +1,139 @@
+const BaseTool = require('../lib/baseTool');
+const { getAsanaService } = require('../services/asanaService');
+
+class AsanaTaskManager extends BaseTool {
+  constructor(context) {
+    super(context);
+    this.name = 'AsanaTaskManager';
+    this.description = 'Manage tasks in Asana: create, update, search, and complete tasks with full access to subtasks, descriptions, and attachments';
+    this.priority = 80;
+
+    this.parameters = {
+      type: 'object',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['create', 'update', 'search', 'get', 'complete', 'add_comment'],
+          description: 'Action to perform'
+        },
+        projectGid: {
+          type: 'string',
+          description: 'Project GID (required for create)'
+        },
+        taskGid: {
+          type: 'string',
+          description: 'Task GID (required for update, get, complete, add_comment)'
+        },
+        name: {
+          type: 'string',
+          description: 'Task name (for create)'
+        },
+        notes: {
+          type: 'string',
+          description: 'Task description/notes'
+        },
+        assignee: {
+          type: 'string',
+          description: 'Assignee user GID'
+        },
+        dueDate: {
+          type: 'string',
+          description: 'Due date (YYYY-MM-DD format)'
+        },
+        comment: {
+          type: 'string',
+          description: 'Comment text (for add_comment)'
+        },
+        searchParams: {
+          type: 'object',
+          description: 'Search parameters (for search action)'
+        }
+      },
+      required: ['action']
+    };
+  }
+
+  shouldTrigger(message) {
+    const keywords = ['asana', 'task', 'project', 'assign', 'due date', 'subtask'];
+    return keywords.some(keyword =>
+      message.toLowerCase().includes(keyword)
+    );
+  }
+
+  async execute(args) {
+    const asana = getAsanaService();
+
+    try {
+      switch (args.action) {
+        case 'create':
+          const task = await asana.createTask(args.projectGid, {
+            name: args.name,
+            notes: args.notes,
+            assignee: args.assignee,
+            dueDate: args.dueDate
+          });
+
+          return `✅ Created task: ${task.name}\nGID: ${task.gid}\nURL: https://app.asana.com/0/${task.gid}`;
+
+        case 'get':
+          const taskDetails = await asana.getTask(args.taskGid);
+          return this.formatTaskDetails(taskDetails);
+
+        case 'complete':
+          await asana.updateTaskStatus(args.taskGid, true);
+          return `✅ Task marked as complete`;
+
+        case 'add_comment':
+          await asana.addComment(args.taskGid, args.comment);
+          return `✅ Comment added to task`;
+
+        case 'search':
+          const tasks = await asana.searchTasks(args.searchParams);
+          return this.formatTaskList(tasks);
+
+        default:
+          return '❌ Unknown action';
+      }
+    } catch (error) {
+      this.log('error', 'Asana tool error', { error: error.message });
+      return `❌ Error: ${error.message}`;
+    }
+  }
+
+  formatTaskDetails(task) {
+    let output = `📋 **${task.name}**\n\n`;
+    output += `GID: ${task.gid}\n`;
+    output += `Status: ${task.completed ? '✅ Complete' : '⏳ In Progress'}\n`;
+
+    if (task.assignee) {
+      output += `Assignee: ${task.assignee.name}\n`;
+    }
+
+    if (task.due_on) {
+      output += `Due: ${task.due_on}\n`;
+    }
+
+    if (task.notes) {
+      output += `\nDescription:\n${task.notes}\n`;
+    }
+
+    output += `\nURL: https://app.asana.com/0/${task.gid}`;
+    return output;
+  }
+
+  formatTaskList(tasks) {
+    if (!tasks || tasks.length === 0) {
+      return 'No tasks found';
+    }
+
+    let output = `📋 **Found ${tasks.length} tasks:**\n\n`;
+
+    tasks.forEach(task => {
+      output += `• ${task.name} (${task.gid})\n`;
+    });
+
+    return output;
+  }
+}
+
+module.exports = AsanaTaskManager;

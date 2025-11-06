@@ -4,13 +4,28 @@ const joi = require('joi');
 const isTest = process.env.NODE_ENV === 'test';
 
 const envSchema = joi.object({
-  // Bitrix24 Configuration
-  BITRIX24_DOMAIN: isTest ? joi.string().default('test.bitrix24.com') : joi.string().required(),
-  BITRIX24_INBOUND_WEBHOOK: isTest ? joi.string().default('https://test.bitrix24.com/rest/1/test/') : joi.string().uri().required(),
-  BITRIX24_OUTBOUND_SECRET: isTest ? joi.string().default('test-secret') : joi.string().required(),
-  BITRIX24_APP_ID: isTest ? joi.string().default('test-app-id') : joi.string().required(),
-  BITRIX24_APP_SECRET: isTest ? joi.string().default('test-app-secret') : joi.string().required(),
+  // Platform Integration Flags
+  ENABLE_BITRIX24_INTEGRATION: joi.boolean().default(false),
+  ENABLE_GOOGLE_CHAT_INTEGRATION: joi.boolean().default(false),
+  ENABLE_ASANA_INTEGRATION: joi.boolean().default(false),
+
+  // Bitrix24 Configuration (optional - only required if ENABLE_BITRIX24_INTEGRATION=true)
+  BITRIX24_DOMAIN: joi.string().optional(),
+  BITRIX24_INBOUND_WEBHOOK: joi.string().uri().optional(),
+  BITRIX24_OUTBOUND_SECRET: joi.string().optional(),
+  BITRIX24_APP_ID: joi.string().optional(),
+  BITRIX24_APP_SECRET: joi.string().optional(),
   BITRIX24_USER_ID: joi.string().default('1'),
+
+  // Google Workspace Chat Configuration (optional - only required if ENABLE_GOOGLE_CHAT_INTEGRATION=true)
+  GOOGLE_CHAT_PROJECT_ID: joi.string().optional(),
+  GOOGLE_CHAT_PROJECT_NUMBER: joi.string().optional(),
+
+  // Asana Configuration (optional - only required if ENABLE_ASANA_INTEGRATION=true)
+  ASANA_ACCESS_TOKEN: joi.string().optional(),
+  ASANA_WORKSPACE_GID: joi.string().optional(),
+  ASANA_BOT_EMAIL: joi.string().email().optional(),
+  ASANA_WEBHOOK_SECRET: joi.string().optional(),
 
   // Gemini AI Configuration
   GEMINI_API_KEY: isTest ? joi.string().default('test-key') : joi.string().required(),
