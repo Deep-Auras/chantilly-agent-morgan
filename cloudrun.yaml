@@ -61,8 +61,10 @@ spec:
         run.googleapis.com/execution-environment: gen2
 
     spec:
-      # Service account with minimal permissions
-      serviceAccountName: service-nov-2025@chantilly-agent-morgan.iam.gserviceaccount.com
+      # Service account - using default Compute Engine service account
+      # Format: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+      # Cloud Run uses this automatically if serviceAccountName is not specified
+      # Grant required roles to this SA via IAM (see permissions section below)
 
       # Container timeout (15 minutes max for complex tasks)
       timeoutSeconds: 900
@@ -165,8 +167,8 @@ spec:
         - name: GOOGLE_CHAT_PROJECT_NUMBER
           value: "YOUR_PROJECT_NUMBER"  # Replace via console
 
-        - name: GOOGLE_APPLICATION_CREDENTIALS
-          value: "/app/service-account-key.json"  # Mounted secret
+        # NOTE: GOOGLE_APPLICATION_CREDENTIALS not needed in Cloud Run
+        # Application Default Credentials (ADC) automatically uses the service account
 
         # Asana Configuration
         - name: ASANA_ACCESS_TOKEN
@@ -235,43 +237,35 @@ spec:
 # Service Account Permissions (IAM)
 # =============================================================================
 #
-# Runtime Service Account: service-nov-2025@chantilly-agent-morgan.iam.gserviceaccount.com
+# Runtime Service Account: Default Compute Engine Service Account
+# Format: PROJECT_NUMBER-compute@developer.gserviceaccount.com
+# Example: 123456789012-compute@developer.gserviceaccount.com
 #
-# Grant these permissions (via Cloud Console IAM or gcloud):
+# REQUIRED: Grant these permissions via Cloud Console
 #
-# 1. Firestore access:
-#    Role: Cloud Datastore User
-#    Why: Read/write access to Firestore database
+# Steps:
+# 1. Go to Cloud Console > IAM & Admin > IAM
+# 2. Find the Compute Engine default service account (ends with -compute@developer.gserviceaccount.com)
+# 3. Click the Edit button (pencil icon)
+# 4. Add the following roles:
 #
-# 2. Cloud Tasks access:
-#    Role: Cloud Tasks Enqueuer
-#    Why: Create background tasks for async processing
+#    ✅ Cloud Datastore User
+#       Why: Read/write access to Firestore database
 #
-# 3. Vertex AI access:
-#    Role: Vertex AI User
-#    Why: Access Gemini API and embeddings service
+#    ✅ Vertex AI User
+#       Why: Access Gemini API and embeddings service
 #
-# 4. Logging:
-#    Role: Logs Writer
-#    Why: Write application logs to Cloud Logging
+#    ✅ Logs Writer
+#       Why: Write application logs to Cloud Logging
 #
-# 5. Secret Manager (optional, if using Secret Manager):
-#    Role: Secret Manager Secret Accessor
-#    Why: Read API keys and secrets from Secret Manager
+#    ✅ Cloud Tasks Enqueuer
+#       Why: Create background tasks for async processing
 #
-# 6. Google Chat API:
-#    Role: (Configured via service account key, not IAM roles)
-#    Scope: https://www.googleapis.com/auth/chat.bot
+# 5. Click Save
 #
-# Via Cloud Console:
-# - Go to IAM & Admin > IAM
-# - Find: service-nov-2025@chantilly-agent-morgan.iam.gserviceaccount.com
-# - Click Edit (pencil icon)
-# - Add roles:
-#   * Cloud Datastore User
-#   * Cloud Tasks Enqueuer
-#   * Vertex AI User
-#   * Logs Writer
+# Note: The default compute service account may already have some of these roles.
+# The application uses Application Default Credentials (ADC) which automatically
+# inherits permissions from this service account when running on Cloud Run.
 #
 # =============================================================================
 # Environment Variables Setup
@@ -292,8 +286,8 @@ spec:
 #    - ASANA_WEBHOOK_SECRET: Random secret for webhook verification
 #    - JWT_SECRET: Random 64+ character string for JWT signing
 #
-# 4. For GOOGLE_APPLICATION_CREDENTIALS:
-#    - Upload service-nov-2025-key.json as a secret
-#    - Mount it to /app/service-account-key.json
+# NOTE: GOOGLE_APPLICATION_CREDENTIALS is NOT needed in Cloud Run.
+# The application automatically uses Application Default Credentials (ADC)
+# which inherits from the default Compute Engine service account.
 #
 # =============================================================================
