@@ -165,6 +165,16 @@ async function initializeServices() {
     hasErrors = true;
   }
 
+  // Try Gemini service initialization
+  try {
+    const { initializeGeminiService } = require('./services/gemini');
+    await initializeGeminiService();
+    logger.info('Gemini service initialized');
+  } catch (error) {
+    logger.error('Failed to initialize Gemini service', error);
+    hasErrors = true;
+  }
+
   // Try custom tools loading - this is critical for the current issue
   try {
     const { loadTools } = require('./lib/toolLoader');
