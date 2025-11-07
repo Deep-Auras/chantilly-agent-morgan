@@ -92,7 +92,7 @@ class GeminiService {
 
   async processMessage(messageData, eventData) {
     let stopTyping = null;
-    
+
     try {
       // Check if agent should respond based on personality and triggers
       const shouldRespond = await this.shouldAgentRespond(messageData.message, messageData.userId, messageData.messageType);
@@ -101,8 +101,13 @@ class GeminiService {
         return null;
       }
 
-      // Start persistent typing indicator
-      stopTyping = await this.startTypingIndicator(messageData.dialogId);
+      // Typing indicators only work on Bitrix24 (Google Chat API doesn't support bot typing status)
+      const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
+      const isBitrix24Message = !messageData.platform || messageData.platform === 'bitrix24';
+
+      if (ENABLE_BITRIX24 && isBitrix24Message) {
+        stopTyping = await this.startTypingIndicator(messageData.dialogId);
+      }
 
       // Apply response delay for natural feeling
       const delay = this.personalityService.getResponseDelay();
