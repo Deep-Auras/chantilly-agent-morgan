@@ -172,7 +172,7 @@ Like tools, complex tasks utilize services for core functionality and business l
 
 All of the parameters or inputs can be customized in natural language, so it's possible to create novel and granular reports.
 
-There is an important caveat: the first few task templates should be vetted by human engineers to ensure the proper guardrails within the system. Engineers should survey users with what tasks agents are expected to perform and examples of accepted output or deliverables. Then bootstrap agents with a few tasks with outputs that pass user acceptance testing. Engineers are ultimately liable for the performance of complex tasks because executionScripts and self-repair steps are exposed to oversight. Additionally, system deployers, engineers and users can audit the *process* the agent is using for improvement or wider adoption.          
+There is an important caveat: the first few task templates should be vetted by human engineers to ensure the proper guardrails within the system. System deployers should survey users with what tasks agents are expected to perform and examples of accepted output or deliverables. Then bootstrap agents with a few tasks with outputs that pass user acceptance testing. System deployers are ultimately liable for the performance of complex tasks because executionScripts and self-repair steps are exposed to oversight. Additionally, system deployers and users can audit the *process* the agent is using for improvement or wider adoption.          
 
 ### executionScript
 
