@@ -22,11 +22,16 @@ class AsanaService {
     if (this.initialized) return;
 
     try {
-      this.client = asana.Client.create({
-        defaultHeaders: {
-          'Asana-Enable': 'new_user_task_lists'
-        }
-      }).useAccessToken(process.env.ASANA_ACCESS_TOKEN);
+      // Asana SDK v3.x uses ApiClient pattern
+      this.client = asana.ApiClient.instance;
+      const token = this.client.authentications['token'];
+      token.accessToken = process.env.ASANA_ACCESS_TOKEN;
+
+      // Instantiate API classes
+      this.tasksApi = new asana.TasksApi();
+      this.webhooksApi = new asana.WebhooksApi();
+      this.storiesApi = new asana.StoriesApi();
+      this.sectionsApi = new asana.SectionsApi();
 
       this.initialized = true;
       logger.info('Asana service initialized');
@@ -66,11 +71,16 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const webhook = await this.client.webhooks.create({
-        resource: resourceGid,
-        target: targetUrl,
-        filters: filters
-      });
+      const body = {
+        data: {
+          resource: resourceGid,
+          target: targetUrl,
+          filters: filters
+        }
+      };
+
+      const result = await this.webhooksApi.createWebhook(body);
+      const webhook = result.data;
 
       // Store webhook in Firestore
       await this.db.collection('asana-webhooks').doc(webhook.gid).set({
@@ -126,9 +136,11 @@ class AsanaService {
 
     if (action === 'added' || action === 'changed') {
       // Fetch full task details
-      const task = await this.client.tasks.getTask(resource.gid, {
+      const opts = {
         opt_fields: 'name,notes,assignee,due_on,completed,projects,custom_fields,attachments,subtasks,memberships'
-      });
+      };
+      const result = await this.tasksApi.getTask(resource.gid, opts);
+      const task = result.data;
 
       // Check if Morgan should process this task
       if (this.shouldProcessTask(task)) {
@@ -192,13 +204,18 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const task = await this.client.tasks.create({
-        projects: [projectGid],
-        name: data.name,
-        notes: data.notes || '',
-        due_on: data.dueDate || null,
-        assignee: data.assignee || null
-      });
+      const body = {
+        data: {
+          projects: [projectGid],
+          name: data.name,
+          notes: data.notes || '',
+          due_on: data.dueDate || null,
+          assignee: data.assignee || null
+        }
+      };
+
+      const result = await this.tasksApi.createTask(body);
+      const task = result.data;
 
       logger.info('Created Asana task', { gid: task.gid, name: task.name });
       return task;
@@ -215,9 +232,14 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const task = await this.client.tasks.update(taskGid, {
-        completed: completed
-      });
+      const body = {
+        data: {
+          completed: completed
+        }
+      };
+
+      const result = await this.tasksApi.updateTask(body, taskGid);
+      const task = result.data;
 
       logger.info('Updated task status', { gid: taskGid, completed });
       return task;
@@ -234,9 +256,14 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const story = await this.client.stories.createOnTask(taskGid, {
-        text: text
-      });
+      const body = {
+        data: {
+          text: text
+        }
+      };
+
+      const result = await this.storiesApi.createStoryForTask(body, taskGid);
+      const story = result.data;
 
       logger.info('Added comment to task', { taskGid });
       return story;
@@ -253,11 +280,12 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const task = await this.client.tasks.getTask(taskGid, {
+      const opts = {
         opt_fields: 'name,notes,assignee,due_on,completed,projects,custom_fields,attachments,subtasks,tags,followers,memberships'
-      });
+      };
 
-      return task;
+      const result = await this.tasksApi.getTask(taskGid, opts);
+      return result.data;
     } catch (error) {
       logger.error('Failed to get task', { error: error.message });
       throw error;
@@ -271,12 +299,13 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const tasks = await this.client.tasks.searchTasksForWorkspace(
-        this.workspaceGid,
-        params
-      );
+      const opts = {
+        ...params,
+        workspace: this.workspaceGid
+      };
 
-      return tasks.data;
+      const result = await this.tasksApi.searchTasksForWorkspace(opts);
+      return result.data;
     } catch (error) {
       logger.error('Failed to search tasks', { error: error.message });
       throw error;
@@ -290,8 +319,8 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const subtasks = await this.client.tasks.getSubtasksForTask(taskGid);
-      return subtasks.data;
+      const result = await this.tasksApi.getSubtasksForTask(taskGid, {});
+      return result.data;
     } catch (error) {
       logger.error('Failed to get subtasks', { error: error.message });
       throw error;
@@ -304,7 +333,8 @@ class AsanaService {
   async handleCommentEvent(action, resource, parent) {
     if (action === 'added' && parent && parent.resource_type === 'task') {
       // Fetch story details
-      const story = await this.client.stories.getStory(resource.gid);
+      const result = await this.storiesApi.getStory(resource.gid, {});
+      const story = result.data;
 
       // Check if Morgan is mentioned
       if (story.text && story.text.includes('@morgan')) {
@@ -329,8 +359,9 @@ class AsanaService {
     await this.initialize();
 
     try {
-      const sections = await this.client.sections.getSectionsForProject(projectGid);
-      const section = sections.data.find(s => s.name === sectionName);
+      const result = await this.sectionsApi.getSectionsForProject(projectGid, {});
+      const sections = result.data;
+      const section = sections.find(s => s.name === sectionName);
       return section || null;
     } catch (error) {
       logger.error('Failed to get section by name', { error: error.message });
@@ -345,10 +376,13 @@ class AsanaService {
     await this.initialize();
 
     try {
-      await this.client.sections.addTask(sectionGid, {
-        task: taskGid
-      });
+      const body = {
+        data: {
+          task: taskGid
+        }
+      };
 
+      await this.sectionsApi.addTaskForSection(body, sectionGid);
       logger.info('Moved task to section', { taskGid, sectionGid });
     } catch (error) {
       logger.error('Failed to move task to section', { error: error.message });
