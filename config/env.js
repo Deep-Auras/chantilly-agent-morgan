@@ -9,6 +9,14 @@ const envSchema = joi.object({
   ENABLE_GOOGLE_CHAT_INTEGRATION: joi.boolean().default(false),
   ENABLE_ASANA_INTEGRATION: joi.boolean().default(false),
 
+  // RBAC Configuration (Role-Based Access Control)
+  // Determines which platform's role system to use for user permissions
+  // Options: 'bitrix24' (default), 'google-workspace', 'hybrid'
+  // - bitrix24: Uses bitrix_users collection (original behavior)
+  // - google-workspace: Uses Google Workspace admin/space manager roles
+  // - hybrid: Checks platform-specific role (Bitrix24 for Bitrix, Google for Google Chat)
+  RBAC_SYSTEM: joi.string().valid('bitrix24', 'google-workspace', 'hybrid').default('bitrix24'),
+
   // Bitrix24 Configuration (optional - only required if ENABLE_BITRIX24_INTEGRATION=true)
   BITRIX24_DOMAIN: joi.string().optional(),
   BITRIX24_INBOUND_WEBHOOK: joi.string().uri().optional(),

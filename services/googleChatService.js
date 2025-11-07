@@ -39,15 +39,145 @@ class GoogleChatService {
   }
 
   /**
+   * Sanitize Google Chat ID for use as Firestore document ID
+   * Google Chat IDs contain slashes which Firestore doesn't allow
+   */
+  sanitizeId(id) {
+    return id.replace(/\//g, '_');
+  }
+
+  /**
+   * Detect and store user role from Google Chat event
+   * Returns 'admin' if user has elevated permissions, otherwise 'user'
+   */
+  async detectAndStoreUserRole(user, space) {
+    try {
+      const sanitizedUserId = this.sanitizeId(user.name);
+
+      // Determine role based on user type and space membership
+      let role = 'user'; // Default to least privilege
+      let roleDetails = {
+        userType: user.type || 'HUMAN',
+        isSpaceManager: false,
+        isWorkspaceAdmin: false
+      };
+
+      // Check if user is a bot (bots should have limited permissions)
+      if (user.type === 'BOT') {
+        role = 'user';
+        roleDetails.userType = 'BOT';
+      }
+
+      // For spaces (not DMs), try to get membership info to check if user is manager/owner
+      if (space && space.type !== 'DM' && space.name) {
+        try {
+          await this.initialize();
+
+          // Get space membership details
+          const membershipName = `${space.name}/members/${user.name.split('/')[1]}`;
+          const membership = await this.chat.spaces.members.get({
+            name: membershipName
+          });
+
+          // Check if user is a space manager/owner
+          if (membership.data.role === 'ROLE_MANAGER') {
+            role = 'admin';
+            roleDetails.isSpaceManager = true;
+          }
+        } catch (membershipError) {
+          // Membership lookup failed - continue with default role
+          logger.debug('Could not fetch space membership', {
+            userId: sanitizedUserId,
+            error: membershipError.message
+          });
+        }
+      }
+
+      // Store user role in Firestore (google-chat-users collection)
+      const userRef = this.db.collection('google-chat-users').doc(sanitizedUserId);
+      await userRef.set({
+        originalUserId: user.name,
+        sanitizedUserId: sanitizedUserId,
+        displayName: user.displayName || 'Unknown',
+        email: user.email || null,
+        role: role,
+        roleDetails: roleDetails,
+        lastSeen: this.FieldValue.serverTimestamp(),
+        updatedAt: this.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      logger.info('Google Chat user role detected and stored', {
+        userId: sanitizedUserId,
+        displayName: user.displayName,
+        role: role,
+        roleDetails: roleDetails
+      });
+
+      return role;
+
+    } catch (error) {
+      logger.error('Failed to detect/store user role', {
+        userId: user.name,
+        error: error.message
+      });
+      return 'user'; // Fail-safe: default to least privilege
+    }
+  }
+
+  /**
+   * Get user role from Firestore cache
+   * Returns cached role if available and recent, otherwise re-detects
+   */
+  async getUserRole(user, space) {
+    try {
+      const sanitizedUserId = this.sanitizeId(user.name);
+      const userRef = this.db.collection('google-chat-users').doc(sanitizedUserId);
+      const userDoc = await userRef.get();
+
+      // Cache TTL: 5 minutes
+      const CACHE_TTL_MS = 5 * 60 * 1000;
+
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        const lastUpdated = userData.updatedAt?.toMillis() || 0;
+        const now = Date.now();
+
+        // If cache is fresh, return cached role
+        if (now - lastUpdated < CACHE_TTL_MS) {
+          logger.debug('Using cached Google Chat user role', {
+            userId: sanitizedUserId,
+            role: userData.role,
+            cacheAge: `${((now - lastUpdated) / 1000).toFixed(1)}s`
+          });
+          return userData.role;
+        }
+      }
+
+      // Cache miss or expired - re-detect role
+      return await this.detectAndStoreUserRole(user, space);
+
+    } catch (error) {
+      logger.error('Failed to get user role', {
+        userId: user.name,
+        error: error.message
+      });
+      return 'user'; // Fail-safe
+    }
+  }
+
+  /**
    * Handle incoming message event
    */
   async handleMessage(event) {
     const { message, space, user } = event;
 
     try {
-      // Get or create conversation context
-      const conversationId = space.name;
-      const userId = user.name;
+      // Sanitize IDs for Firestore (remove slashes)
+      const conversationId = this.sanitizeId(space.name);
+      const userId = this.sanitizeId(user.name);
+
+      // Detect and store user role
+      const userRole = await this.getUserRole(user, space);
 
       // Process message with Gemini using processMessage
       const gemini = getGeminiService();
@@ -57,9 +187,10 @@ class GoogleChatService {
         message: message.text,
         userId: userId,
         userName: user.displayName || user.name,
+        userRole: userRole, // Include detected role
         messageType: space.type === 'DM' ? 'P' : 'G', // P = Private/DM, G = Group
-        dialogId: space.name,
-        chatId: space.name,
+        dialogId: conversationId, // Use sanitized ID
+        chatId: conversationId, // Use sanitized ID
         messageId: message.name || `gchat-${Date.now()}`,
         platform: 'google-chat'
       };
@@ -75,8 +206,8 @@ class GoogleChatService {
       // result may be null if tool handled messaging, or an object with reply
       const responseText = result?.reply || 'Message processed successfully.';
 
-      // Cache conversation history
-      await this.cacheMessage(space.name, user, message.text, responseText);
+      // Cache conversation history (use sanitized IDs)
+      await this.cacheMessage(conversationId, user, message.text, responseText);
 
       // Return card UI response
       return this.createCardResponse(responseText);
@@ -248,16 +379,18 @@ class GoogleChatService {
    */
   async handleSpaceJoin(event) {
     const { space } = event;
+    const sanitizedSpaceId = this.sanitizeId(space.name);
 
-    await this.db.collection('google-chat-spaces').doc(space.name).set({
-      spaceName: space.name,
+    await this.db.collection('google-chat-spaces').doc(sanitizedSpaceId).set({
+      spaceName: space.name, // Store original name
+      sanitizedId: sanitizedSpaceId,
       spaceType: space.type, // DM or ROOM
       displayName: space.displayName || 'Unknown',
       joinedAt: this.FieldValue.serverTimestamp(),
       active: true
     });
 
-    logger.info('Joined Google Chat space', { spaceName: space.name });
+    logger.info('Joined Google Chat space', { spaceName: space.name, sanitizedId: sanitizedSpaceId });
   }
 
   /**
@@ -265,13 +398,14 @@ class GoogleChatService {
    */
   async handleSpaceLeave(event) {
     const { space } = event;
+    const sanitizedSpaceId = this.sanitizeId(space.name);
 
-    await this.db.collection('google-chat-spaces').doc(space.name).update({
+    await this.db.collection('google-chat-spaces').doc(sanitizedSpaceId).update({
       active: false,
       leftAt: this.FieldValue.serverTimestamp()
     });
 
-    logger.info('Left Google Chat space', { spaceName: space.name });
+    logger.info('Left Google Chat space', { spaceName: space.name, sanitizedId: sanitizedSpaceId });
   }
 
   /**
