@@ -11,61 +11,74 @@ router.post('/webhook/google-chat', async (req, res) => {
     const event = req.body;
     const chatService = getGoogleChatService();
 
-    // Log the complete event structure for debugging
-    logger.info('Google Chat event received - FULL PAYLOAD', {
-      hasType: 'type' in event,
-      typeValue: event.type,
-      hasMessage: !!event.message,
-      hasSpace: !!event.space,
-      hasAction: !!event.action,
-      hasCommonEventObject: !!event.commonEventObject,
-      eventKeys: Object.keys(event),
-      spaceName: event.space?.name,
-      userName: event.user?.displayName
-    });
+    // Google Workspace Add-on format: event.chat.messagePayload
+    // Simple Chat app format: event.type, event.message, event.space
+    const isAddOnFormat = event.chat && event.chat.messagePayload;
 
-    // Use event.type if it exists (per Google documentation), otherwise infer from fields
-    let eventType = event.type || 'UNKNOWN';
+    let eventType = 'UNKNOWN';
+    let transformedEvent = event;
 
-    // If no type field, infer from payload structure
-    if (eventType === 'UNKNOWN') {
-      if (event.message) {
+    if (isAddOnFormat) {
+      // Transform Workspace Add-on format to simple format
+      const messagePayload = event.chat.messagePayload;
+
+      if (messagePayload.message) {
         eventType = 'MESSAGE';
-      } else if (event.space && event.space.singleUserBotDm === true && !event.message) {
+        transformedEvent = {
+          type: 'MESSAGE',
+          message: messagePayload.message,
+          space: messagePayload.space,
+          user: event.chat.user,
+          eventTime: event.chat.eventTime
+        };
+      } else if (messagePayload.space && !messagePayload.message) {
         eventType = 'ADDED_TO_SPACE';
-      } else if (event.action) {
-        eventType = 'CARD_CLICKED';
+        transformedEvent = {
+          type: 'ADDED_TO_SPACE',
+          space: messagePayload.space,
+          user: event.chat.user,
+          eventTime: event.chat.eventTime
+        };
       }
+    } else {
+      // Simple Chat app format
+      eventType = event.type || 'UNKNOWN';
+      if (event.message) eventType = 'MESSAGE';
     }
 
-    logger.info('Determined event type', { eventType });
+    logger.info('Google Chat event processed', {
+      eventType,
+      isAddOnFormat,
+      userName: transformedEvent.user?.displayName,
+      spaceName: transformedEvent.space?.name
+    });
 
     switch (eventType) {
       case 'MESSAGE':
-        if (event.message.slashCommand) {
-          const response = await chatService.handleSlashCommand(event);
+        if (transformedEvent.message.slashCommand) {
+          const response = await chatService.handleSlashCommand(transformedEvent);
           return res.json(response);
         } else {
-          const response = await chatService.handleMessage(event);
+          const response = await chatService.handleMessage(transformedEvent);
           return res.json(response);
         }
 
       case 'ADDED_TO_SPACE':
-        await chatService.handleSpaceJoin(event);
+        await chatService.handleSpaceJoin(transformedEvent);
         return res.json({
-          text: "👋 Hi! I'm Morgan, your AI project assistant. Type /help to see what I can do!"
+          text: "👋 Hi! I'm Morgan, your AI project assistant. How can I help you today?"
         });
 
       case 'REMOVED_FROM_SPACE':
-        await chatService.handleSpaceLeave(event);
+        await chatService.handleSpaceLeave(transformedEvent);
         return res.json({});
 
       case 'CARD_CLICKED':
-        const response = await chatService.handleCardClick(event);
+        const response = await chatService.handleCardClick(transformedEvent);
         return res.json(response);
 
       default:
-        logger.info('Unhandled Google Chat event type', { eventType, eventKeys: Object.keys(event) });
+        logger.info('Unhandled Google Chat event', { eventType, eventKeys: Object.keys(event) });
         return res.json({});
     }
   } catch (error) {
