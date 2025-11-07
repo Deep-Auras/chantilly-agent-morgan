@@ -5,13 +5,14 @@
 
 const { google } = require('googleapis');
 const { getGeminiService } = require('./gemini');
-const { getFirestore, FieldValue } = require('@google-cloud/firestore');
+const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
 
 class GoogleChatService {
   constructor() {
     this.chat = null;
-    this.db = getFirestore(process.env.FIRESTORE_DATABASE_ID || '(default)');
+    this.db = getFirestore();
+    this.FieldValue = getFieldValue();
     this.initialized = false;
   }
 
@@ -79,7 +80,7 @@ class GoogleChatService {
       const conversationDoc = await conversationRef.get();
 
       const messageEntry = {
-        timestamp: FieldValue.serverTimestamp(),
+        timestamp: this.FieldValue.serverTimestamp(),
         userId: user.name,
         userName: user.displayName || user.name,
         text: messageText,
@@ -93,8 +94,8 @@ class GoogleChatService {
           platform: 'google-chat',
           spaceId: spaceId,
           messages: [messageEntry],
-          lastActivity: FieldValue.serverTimestamp(),
-          created: FieldValue.serverTimestamp()
+          lastActivity: this.FieldValue.serverTimestamp(),
+          created: this.FieldValue.serverTimestamp()
         });
       } else {
         // Append to existing conversation (keep last 10 messages)
@@ -103,7 +104,7 @@ class GoogleChatService {
 
         await conversationRef.update({
           messages: updatedMessages,
-          lastActivity: FieldValue.serverTimestamp()
+          lastActivity: this.FieldValue.serverTimestamp()
         });
       }
 
@@ -239,7 +240,7 @@ class GoogleChatService {
       spaceName: space.name,
       spaceType: space.type, // DM or ROOM
       displayName: space.displayName || 'Unknown',
-      joinedAt: FieldValue.serverTimestamp(),
+      joinedAt: this.FieldValue.serverTimestamp(),
       active: true
     });
 
@@ -254,7 +255,7 @@ class GoogleChatService {
 
     await this.db.collection('google-chat-spaces').doc(space.name).update({
       active: false,
-      leftAt: FieldValue.serverTimestamp()
+      leftAt: this.FieldValue.serverTimestamp()
     });
 
     logger.info('Left Google Chat space', { spaceName: space.name });

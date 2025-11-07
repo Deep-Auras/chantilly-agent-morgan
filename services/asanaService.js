@@ -5,7 +5,7 @@
 
 const asana = require('asana');
 const crypto = require('crypto');
-const { getFirestore, FieldValue } = require('@google-cloud/firestore');
+const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
 
 class AsanaService {
@@ -13,7 +13,8 @@ class AsanaService {
     this.client = null;
     this.workspaceGid = process.env.ASANA_WORKSPACE_GID;
     this.webhookSecret = process.env.ASANA_WEBHOOK_SECRET;
-    this.db = getFirestore(process.env.FIRESTORE_DATABASE_ID || '(default)');
+    this.db = getFirestore();
+    this.FieldValue = getFieldValue();
     this.initialized = false;
   }
 
@@ -78,7 +79,7 @@ class AsanaService {
         targetUrl: targetUrl,
         filters: filters || null,
         active: true,
-        created: FieldValue.serverTimestamp()
+        created: this.FieldValue.serverTimestamp()
       });
 
       logger.info('Created Asana webhook', { gid: webhook.gid, resourceGid });
