@@ -175,3 +175,6 @@ temp/
 
 # Additional security files
 service_account.json
+
+# We give too much sometimes and wanted leave some mystery
+examples/knowledgeBase/

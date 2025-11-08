@@ -1,0 +1,502 @@
+/**
+ * Bluesky YouTube Post Generator Tool
+ *
+ * Analyzes YouTube videos using Gemini 2.5 Pro's video understanding
+ * capabilities and generates engaging Bluesky posts tailored to
+ * marketing personas.
+ *
+ * Features:
+ * - Direct YouTube URL analysis (no download needed)
+ * - Visual + audio content extraction
+ * - Persona-tailored post generation
+ * - Automatic fact enrichment
+ * - Post preview and immediate posting
+ *
+ * @module tools/bskyYouTubePost
+ */
+
+const BaseTool = require('../lib/baseTool');
+const { getBskyService } = require('../services/bskyService');
+const { getGeminiService } = require('../services/gemini');
+
+class BskyYouTubePost extends BaseTool {
+  constructor(context) {
+    super(context);
+    this.name = 'BskyYouTubePost';
+    this.description = 'Generate Bluesky social media posts from YouTube videos when user EXPLICITLY requests "create a Bluesky post about this YouTube video" or "watch this video and post to Bluesky" or "summarize YouTube video for Bluesky" or "turn this YouTube video into a bsky post". This tool uses Gemini 2.5 Pro to analyze video content (visual + audio), extracts key insights, adds relevant extra facts, and generates engaging posts optimized for target marketing personas. Supports direct YouTube URLs (youtube.com, youtu.be). Use ONLY when user wants to create Bluesky content based on video analysis. DO NOT use for general video summaries, YouTube searches, or conversational questions about videos.';
+    this.priority = 50;
+    this.timeout = 12 * 60 * 1000; // 12 minutes (video analysis can be slow)
+
+    this.parameters = {
+      type: 'object',
+      properties: {
+        youtubeUrl: {
+          type: 'string',
+          description: 'YouTube video URL (youtube.com/watch?v=ID or youtu.be/ID)'
+        },
+        personaIds: {
+          type: 'array',
+          description: 'Target persona IDs for tailoring post tone/content (optional)'
+        },
+        maxLength: {
+          type: 'number',
+          description: 'Maximum post character length (default: 280, max: 300)'
+        },
+        includeFact: {
+          type: 'boolean',
+          description: 'Add an interesting extra fact related to video topic (default: true)'
+        },
+        tone: {
+          type: 'string',
+          enum: ['professional', 'casual', 'engaging'],
+          description: 'Post tone (default: engaging)'
+        },
+        postImmediately: {
+          type: 'boolean',
+          description: 'If true, post immediately. If false, return draft for review (default: false)'
+        }
+      },
+      required: ['youtubeUrl']
+    };
+  }
+
+  // SEMANTIC TRIGGER (CRITICAL - See CLAUDE.md)
+  // DO NOT use keyword matching - let Gemini's function calling handle triggering
+  async shouldTrigger() {
+    return false; // Let Gemini handle all triggering via description
+  }
+
+  async execute(args, toolContext = {}) {
+    const {
+      youtubeUrl,
+      personaIds = null,
+      maxLength = 280,
+      includeFact = true,
+      tone = 'engaging',
+      postImmediately = false
+    } = args;
+
+    try {
+      // Validate YouTube URL
+      const videoId = this.extractVideoId(youtubeUrl);
+      if (!videoId) {
+        return '❌ Invalid YouTube URL. Use format: https://www.youtube.com/watch?v=VIDEO_ID or https://youtu.be/VIDEO_ID';
+      }
+
+      this.log('info', 'Processing YouTube video', { videoId });
+
+      // Initialize services
+      const bsky = getBskyService();
+      const gemini = getGeminiService();
+
+      const bskyInitialized = await bsky.initialize();
+      if (!bskyInitialized) {
+        return '❌ Bluesky integration not available. Check ENABLE_BLUESKY_INTEGRATION setting.';
+      }
+
+      // Step 1: Analyze video with Gemini 2.5 Pro
+      this.log('info', 'Analyzing video content with Gemini 2.5 Pro');
+
+      const videoAnalysis = await this.analyzeVideo(youtubeUrl, gemini);
+
+      if (!videoAnalysis.success) {
+        return `❌ Video analysis failed: ${videoAnalysis.error}`;
+      }
+
+      this.log('info', 'Video analysis complete', {
+        topicExtracted: !!videoAnalysis.topic
+      });
+
+      // Step 2: Load target personas
+      const personas = await this.loadPersonas(personaIds, toolContext);
+
+      if (personas.length === 0) {
+        this.log('warn', 'No personas found, using generic tone');
+      }
+
+      // Step 3: Generate persona-tailored post
+      this.log('info', 'Generating Bluesky post', { tone, maxLength });
+
+      const postText = await this.generatePost({
+        videoAnalysis,
+        personas,
+        tone,
+        maxLength,
+        includeFact,
+        gemini
+      });
+
+      if (!postText) {
+        return '❌ Failed to generate post text';
+      }
+
+      // Step 4: Add YouTube link
+      const finalPost = `${postText}\n\n🎥 ${youtubeUrl}`;
+
+      this.log('info', 'Post generated', { length: finalPost.length });
+
+      // Step 5: Post or return draft
+      if (postImmediately) {
+        return await this.postToBsky({
+          text: finalPost,
+          videoId,
+          personaIds,
+          videoAnalysis,
+          bsky
+        });
+      } else {
+        return this.formatDraftPreview({
+          text: finalPost,
+          videoAnalysis,
+          personas,
+          youtubeUrl
+        });
+      }
+    } catch (error) {
+      this.log('error', 'BskyYouTubePost execution failed', { error: error.message });
+      return `❌ Error: ${error.message}`;
+    }
+  }
+
+  /**
+   * Extract video ID from YouTube URL
+   */
+  extractVideoId(url) {
+    // Validate URL format (SSRF protection)
+    try {
+      const urlObj = new URL(url);
+
+      // Only allow YouTube domains
+      const allowedHosts = ['www.youtube.com', 'youtube.com', 'youtu.be', 'm.youtube.com'];
+      if (!allowedHosts.includes(urlObj.hostname)) {
+        this.log('warn', 'Invalid YouTube domain', { hostname: urlObj.hostname });
+        return null;
+      }
+
+      // Extract video ID
+      if (urlObj.hostname === 'youtu.be') {
+        // https://youtu.be/VIDEO_ID
+        return urlObj.pathname.substring(1);
+      } else {
+        // https://www.youtube.com/watch?v=VIDEO_ID
+        const videoId = urlObj.searchParams.get('v');
+        return videoId;
+      }
+    } catch (error) {
+      this.log('warn', 'URL parsing failed', { url, error: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * Analyze YouTube video with Gemini 2.5 Pro
+   */
+  async analyzeVideo(youtubeUrl, gemini) {
+    const analysisPrompt = `Analyze this YouTube video and provide:
+
+1. **Main Topic** (1 sentence): What is the video primarily about?
+2. **Key Insights** (3 bullet points): Most important takeaways or learnings
+3. **Target Audience**: Who would benefit most from this video?
+4. **Surprising Fact** (1 sentence): One interesting or little-known fact related to the video's topic (can be from video or your knowledge)
+5. **Emotional Tone**: Is the video informative, inspirational, urgent, entertaining, etc.?
+
+Keep analysis concise and actionable for social media content creation.
+
+Format response as JSON:
+{
+  "topic": "main topic in one sentence",
+  "insights": ["insight 1", "insight 2", "insight 3"],
+  "targetAudience": "description of target audience",
+  "surprisingFact": "interesting fact",
+  "emotionalTone": "tone descriptor"
+}`;
+
+    try {
+      // Use Gemini 2.5 Pro with video support
+      const response = await gemini.generateContent({
+        contents: [
+          {
+            parts: [
+              {
+                fileData: {
+                  fileUri: youtubeUrl,
+                  mimeType: 'video/*'
+                }
+              },
+              {
+                text: analysisPrompt
+              }
+            ]
+          }
+        ]
+      });
+
+      if (!response || !response.text) {
+        throw new Error('Empty response from Gemini');
+      }
+
+      // Extract JSON from response
+      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No JSON found in response');
+      }
+
+      const analysis = JSON.parse(jsonMatch[0]);
+
+      return {
+        success: true,
+        topic: analysis.topic || 'Unknown topic',
+        insights: analysis.insights || [],
+        targetAudience: analysis.targetAudience || 'General audience',
+        surprisingFact: analysis.surprisingFact || null,
+        emotionalTone: analysis.emotionalTone || 'informative'
+      };
+    } catch (error) {
+      this.log('error', 'Video analysis failed', { error: error.message });
+
+      // Provide helpful error messages
+      if (error.message.includes('video too long')) {
+        return {
+          success: false,
+          error: 'Video exceeds 2 hour limit. Use shorter video or request low resolution processing.'
+        };
+      }
+
+      if (error.message.includes('quota')) {
+        return {
+          success: false,
+          error: 'Gemini API quota exceeded. Try again in 1 hour.'
+        };
+      }
+
+      if (error.message.includes('unavailable')) {
+        return {
+          success: false,
+          error: 'YouTube video unavailable (private, deleted, or region-locked).'
+        };
+      }
+
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Generate persona-tailored Bluesky post
+   */
+  async generatePost({ videoAnalysis, personas, tone, maxLength, includeFact, gemini }) {
+    let personaContext = '';
+
+    if (personas.length > 0) {
+      personaContext = `
+**Target Personas:**
+${personas.map(p => `
+- ${p.name}: ${p.industry || 'N/A'}
+  Interests: ${p.interests ? p.interests.join(', ') : 'N/A'}
+  Pain Points: ${p.painPoints ? p.painPoints.join(', ') : 'N/A'}
+  Preferred Tone: ${p.preferredTone || tone}
+`).join('\n')}
+`;
+    }
+
+    const postPrompt = `Create an engaging Bluesky post about this YouTube video.
+
+**Video Analysis:**
+- Topic: ${videoAnalysis.topic}
+- Key Insights: ${videoAnalysis.insights.join('; ')}
+- Target Audience: ${videoAnalysis.targetAudience}
+- Emotional Tone: ${videoAnalysis.emotionalTone}
+${includeFact && videoAnalysis.surprisingFact ? `- Surprising Fact: ${videoAnalysis.surprisingFact}` : ''}
+
+${personaContext}
+
+**Requirements:**
+1. Maximum ${maxLength} characters (Bluesky limit is 300)
+2. Start with attention-grabbing hook relevant to ${personas.length > 0 ? 'persona interests' : 'video topic'}
+3. Include 1-2 key insights from the video
+${includeFact ? '4. Add the surprising fact if it fits naturally' : ''}
+5. End with engagement prompt (question or call-to-action)
+6. Use ${tone} tone${personas.length > 0 ? ` appropriate for ${personas.map(p => p.name).join(' and ')}` : ''}
+7. Include 2-3 relevant hashtags (max)
+8. Make it conversational and authentic, not salesy
+9. Create urgency or curiosity to drive video views
+
+DO NOT include the YouTube link (will be added separately).
+
+Format: Plain text only, no markdown. Natural line breaks for readability.`;
+
+    try {
+      const response = await gemini.generateResponse(postPrompt, {
+        temperature: 0.7, // Higher creativity for engaging content
+        maxTokens: 300
+      });
+
+      // Clean up response
+      let postText = response.trim();
+
+      // Remove any markdown formatting
+      postText = postText.replace(/\*\*/g, '');
+      postText = postText.replace(/\*/g, '');
+
+      // Ensure within character limit (leaving room for URL)
+      const urlSpace = 30; // Space for "\n\n🎥 " + short URL
+      if (postText.length > (maxLength - urlSpace)) {
+        postText = this.truncateAtSentence(postText, maxLength - urlSpace);
+      }
+
+      return postText;
+    } catch (error) {
+      this.log('error', 'Post generation failed', { error: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * Truncate text at sentence boundary
+   */
+  truncateAtSentence(text, maxLength) {
+    if (text.length <= maxLength) {
+      return text;
+    }
+
+    // Find last sentence-ending punctuation before limit
+    const truncated = text.substring(0, maxLength);
+    const lastPeriod = truncated.lastIndexOf('.');
+    const lastQuestion = truncated.lastIndexOf('?');
+    const lastExclamation = truncated.lastIndexOf('!');
+
+    const lastSentenceEnd = Math.max(lastPeriod, lastQuestion, lastExclamation);
+
+    if (lastSentenceEnd > maxLength * 0.7) {
+      // Good truncation point found
+      return truncated.substring(0, lastSentenceEnd + 1).trim();
+    }
+
+    // No good sentence boundary, truncate at word
+    const lastSpace = truncated.lastIndexOf(' ');
+    return truncated.substring(0, lastSpace).trim() + '...';
+  }
+
+  /**
+   * Load personas from knowledge base
+   */
+  async loadPersonas(personaIds, toolContext) {
+    if (!personaIds || personaIds.length === 0) {
+      return [];
+    }
+
+    const knowledgeBase = toolContext.knowledgeBase || require('../services/knowledgeBase');
+
+    try {
+      const results = await knowledgeBase.search('marketing persona customer', {
+        maxResults: 20,
+        threshold: 0.5
+      });
+
+      const personas = [];
+
+      for (const doc of results) {
+        const extracted = this.extractPersonasFromDocument(doc.content);
+        personas.push(...extracted);
+      }
+
+      // Filter by personaIds
+      return personas.filter(p => personaIds.includes(p.personaId));
+    } catch (error) {
+      this.log('error', 'Failed to load personas', { error: error.message });
+      return [];
+    }
+  }
+
+  /**
+   * Extract persona data from KB document
+   */
+  extractPersonasFromDocument(content) {
+    const personas = [];
+
+    const jsonMatches = content.matchAll(/```json\s*(\{[\s\S]*?"personaId"[\s\S]*?\})\s*```/g);
+
+    for (const match of jsonMatches) {
+      try {
+        const personaData = JSON.parse(match[1]);
+        if (personaData.personaId && personaData.name) {
+          personas.push(personaData);
+        }
+      } catch (error) {
+        // Skip invalid JSON
+      }
+    }
+
+    return personas;
+  }
+
+  /**
+   * Post to Bluesky
+   */
+  async postToBsky({ text, videoId, personaIds, videoAnalysis, bsky }) {
+    try {
+      this.log('info', 'Posting to Bluesky', { textLength: text.length });
+
+      const result = await bsky.createPost(text, {
+        youtubeVideoId: videoId,
+        targetPersonas: personaIds || []
+      });
+
+      this.log('info', 'Post created successfully', { uri: result.uri });
+
+      return `✅ **Posted to Bluesky!**
+
+📱 **Post Content:**
+${text}
+
+🔗 **View Post:** ${result.url}
+
+📊 **Video Analysis:**
+- Topic: ${videoAnalysis.topic}
+- Insights: ${videoAnalysis.insights.join('; ')}
+${videoAnalysis.surprisingFact ? `- Fun Fact Used: ${videoAnalysis.surprisingFact}` : ''}
+
+💡 **Track engagement at:** ${result.url}`;
+    } catch (error) {
+      this.log('error', 'Failed to post to Bluesky', { error: error.message });
+      return `❌ Failed to post: ${error.message}\n\n**Draft Post:**\n${text}`;
+    }
+  }
+
+  /**
+   * Format draft preview for user review
+   */
+  formatDraftPreview({ text, videoAnalysis, personas, youtubeUrl }) {
+    let preview = `📝 **Bluesky Post Draft Ready**\n\n`;
+
+    preview += `**Post Content:**\n${text}\n\n`;
+
+    preview += `**Character Count:** ${text.length}/300\n\n`;
+
+    preview += `📊 **Video Analysis:**\n`;
+    preview += `- Topic: ${videoAnalysis.topic}\n`;
+    preview += `- Key Insights: ${videoAnalysis.insights.join('; ')}\n`;
+    preview += `- Emotional Tone: ${videoAnalysis.emotionalTone}\n`;
+    if (videoAnalysis.surprisingFact) {
+      preview += `- Surprising Fact: ${videoAnalysis.surprisingFact}\n`;
+    }
+    preview += `\n`;
+
+    if (personas.length > 0) {
+      preview += `🎯 **Targeted Personas:** ${personas.map(p => p.name).join(', ')}\n\n`;
+    }
+
+    preview += `**Video:** ${youtubeUrl}\n\n`;
+
+    preview += `💡 **Next Steps:**\n`;
+    preview += `- Review post content above\n`;
+    preview += `- To post immediately, run again with postImmediately=true\n`;
+    preview += `- To regenerate with different tone, specify tone parameter\n`;
+
+    return preview;
+  }
+}
+
+module.exports = BskyYouTubePost;
