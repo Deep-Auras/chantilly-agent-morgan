@@ -1399,6 +1399,64 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
   }
 
   /**
+   * Generate simple text response without tools (for tool-internal AI calls)
+   * @param {string} prompt - The prompt to send to Gemini
+   * @param {object} options - Generation options (temperature, maxTokens, systemInstruction)
+   * @returns {string} - Generated text response
+   */
+  async generateResponse(prompt, options = {}) {
+    try {
+      const client = getGeminiClient();
+      const {
+        temperature = 0.7,
+        maxTokens = 1024,
+        systemInstruction = null
+      } = options;
+
+      const requestConfig = {
+        model: config.GEMINI_MODEL,
+        contents: [{
+          role: 'user',
+          parts: [{ text: prompt }]
+        }],
+        config: {
+          generationConfig: {
+            temperature,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: maxTokens
+          }
+        }
+      };
+
+      if (systemInstruction) {
+        requestConfig.config.systemInstruction = systemInstruction;
+      }
+
+      const result = await client.models.generateContent(requestConfig);
+
+      // Use centralized response extraction
+      const text = extractGeminiText(result) || '';
+
+      logger.info('Generated simple response', {
+        promptLength: prompt.length,
+        responseLength: text.length,
+        temperature,
+        maxTokens
+      });
+
+      return text;
+    } catch (error) {
+      logger.error('Failed to generate simple response', {
+        error: error.message,
+        stack: error.stack,
+        promptPreview: prompt.substring(0, 100)
+      });
+      throw error;
+    }
+  }
+
+  /**
    * Start persistent typing indicator for the chat
    * @param {string} dialogId - Chat/dialog ID
    * @returns {function} - Stop function to clear the interval

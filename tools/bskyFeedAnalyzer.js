@@ -348,7 +348,12 @@ Respond ONLY with JSON:
         buyingSignals: []
       };
     } catch (error) {
-      this.log('error', 'AI prospect evaluation failed', { error: error.message });
+      this.log('error', 'AI prospect evaluation failed', {
+        error: error.message,
+        stack: error.stack,
+        handle: profile?.handle,
+        promptLength: prospectPrompt?.length
+      });
       return {
         score: 0,
         reason: `Evaluation error: ${error.message}`,
