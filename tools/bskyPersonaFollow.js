@@ -134,6 +134,8 @@ class BskyPersonaFollow extends BaseTool {
 
     // Search profiles (limit to avoid quota exhaustion)
     const maxSearches = Math.min(searchQueries.length, 10);
+    const maxProfilesPerSearch = 5; // Limit profiles scored per query
+    const maxCandidates = 20; // Stop after finding this many candidates
     let profilesScanned = 0;
     let profilesSkippedLowFollowers = 0;
     let profilesSkippedAlreadyFollowed = 0;
@@ -148,16 +150,27 @@ class BskyPersonaFollow extends BaseTool {
 
         const profiles = await bsky.searchProfiles(query, 20);
 
-        // Score each profile against persona
+        // Score each profile against persona (limit to first 5 per query)
+        let scoredInThisSearch = 0;
         for (const profile of profiles) {
+          // Stop if we've scored enough profiles in this search
+          if (scoredInThisSearch >= maxProfilesPerSearch) {
+            break;
+          }
+
+          // Stop if we've found enough total candidates
+          if (allMatches.length >= maxCandidates) {
+            this.log('info', 'Found enough candidates, stopping search', { candidates: allMatches.length });
+            break;
+          }
+
           profilesScanned++;
 
-          // TEMPORARILY DISABLED: Let AI evaluate all profiles regardless of follower count
-          // Bluesky searches returning mostly 0-2 follower accounts - need to see actual data
-          // if (profile.followersCount < 1) {
-          //   profilesSkippedLowFollowers++;
-          //   continue;
-          // }
+          // Filter out 0-follower accounts (likely spam/new accounts)
+          if (profile.followersCount < 1) {
+            profilesSkippedLowFollowers++;
+            continue;
+          }
 
           // Skip if already followed
           const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
@@ -168,6 +181,7 @@ class BskyPersonaFollow extends BaseTool {
 
           // AI match scoring
           const matchScore = await this.scoreProfileMatch(profile, persona, gemini);
+          scoredInThisSearch++;
 
           // Log score for debugging
           this.log('debug', 'Profile scored', {
@@ -197,6 +211,11 @@ class BskyPersonaFollow extends BaseTool {
         }
       } catch (error) {
         this.log('warn', 'Profile search failed', { query, error: error.message });
+      }
+
+      // Break outer loop if we found enough candidates
+      if (allMatches.length >= maxCandidates) {
+        break;
       }
     }
 
