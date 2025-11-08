@@ -538,15 +538,14 @@ class BskyService {
         throw new Error('Search failed');
       }
 
+      // NOTE: searchActors returns ProfileView which does NOT include followersCount/followsCount/postsCount
+      // These fields only available in ProfileViewDetailed from getProfile endpoint
       const profiles = response.data.actors.map(actor => ({
         did: actor.did,
         handle: actor.handle,
         displayName: actor.displayName,
         description: actor.description || '',
-        avatarUrl: actor.avatar,
-        followersCount: actor.followersCount || 0,
-        followingCount: actor.followsCount || 0,
-        postsCount: actor.postsCount || 0
+        avatarUrl: actor.avatar
       }));
 
       logger.info('Profile search complete', {
@@ -585,15 +584,14 @@ class BskyService {
         throw new Error('Suggested follows fetch failed');
       }
 
+      // NOTE: getSuggestedFollowsByActor returns ProfileView which does NOT include followersCount/followsCount/postsCount
+      // These fields only available in ProfileViewDetailed from getProfile endpoint
       const profiles = response.data.suggestions.map(actor => ({
         did: actor.did,
         handle: actor.handle,
         displayName: actor.displayName,
         description: actor.description || '',
-        avatarUrl: actor.avatar,
-        followersCount: actor.followersCount || 0,
-        followingCount: actor.followsCount || 0,
-        postsCount: actor.postsCount || 0
+        avatarUrl: actor.avatar
       }));
 
       logger.info('Suggested follows fetched', {
@@ -634,15 +632,13 @@ class BskyService {
         throw new Error('Get follows failed');
       }
 
+      // NOTE: getFollows returns ProfileView which does NOT include followersCount/followsCount/postsCount
       const profiles = response.data.follows.map(actor => ({
         did: actor.did,
         handle: actor.handle,
         displayName: actor.displayName,
         description: actor.description || '',
-        avatarUrl: actor.avatar,
-        followersCount: actor.followersCount || 0,
-        followingCount: actor.followsCount || 0,
-        postsCount: actor.postsCount || 0
+        avatarUrl: actor.avatar
       }));
 
       logger.info('Follows fetched', { actor, count: profiles.length });
@@ -676,15 +672,13 @@ class BskyService {
         throw new Error('Get followers failed');
       }
 
+      // NOTE: getFollowers returns ProfileView which does NOT include followersCount/followsCount/postsCount
       const profiles = response.data.followers.map(actor => ({
         did: actor.did,
         handle: actor.handle,
         displayName: actor.displayName,
         description: actor.description || '',
-        avatarUrl: actor.avatar,
-        followersCount: actor.followersCount || 0,
-        followingCount: actor.followsCount || 0,
-        postsCount: actor.postsCount || 0
+        avatarUrl: actor.avatar
       }));
 
       logger.info('Followers fetched', { actor, count: profiles.length });

@@ -187,12 +187,18 @@ class BskyPersonaFollow extends BaseTool {
     const allMatches = [];
     const maxCandidates = 40; // Evaluate up to 40 total profiles (from both sources)
     let profilesScanned = 0;
-    let profilesSkippedLowFollowers = 0;
     let profilesSkippedAlreadyFollowed = 0;
     let profilesBelowThreshold = 0;
     const allScores = []; // Track all scores for debugging
 
     for (const [did, profile] of allProfiles) {
+      // Skip if already followed (check before scoring to save AI calls)
+      const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
+      if (alreadyFollowed) {
+        profilesSkippedAlreadyFollowed++;
+        continue;
+      }
+
       // Stop if we've evaluated enough profiles
       if (profilesScanned >= maxCandidates) {
         this.log('info', 'Evaluated enough profiles, stopping', { profilesScanned });
@@ -201,18 +207,8 @@ class BskyPersonaFollow extends BaseTool {
 
       profilesScanned++;
 
-      // Filter out 0-follower accounts (likely spam/new accounts)
-      if (profile.followersCount < 1) {
-        profilesSkippedLowFollowers++;
-        continue;
-      }
-
-      // Skip if already followed
-      const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
-      if (alreadyFollowed) {
-        profilesSkippedAlreadyFollowed++;
-        continue;
-      }
+      // NOTE: followersCount not available from suggested follows/search APIs
+      // (only in getProfile). AI scoring will filter out spam/inactive accounts based on bio quality.
 
       // AI match scoring against ALL personas (find best match)
       let bestMatch = null;
@@ -273,7 +269,6 @@ class BskyPersonaFollow extends BaseTool {
     // Log summary statistics
     this.log('info', 'Profile scanning complete', {
       profilesScanned,
-      profilesSkippedLowFollowers,
       profilesSkippedAlreadyFollowed,
       profilesBelowThreshold,
       matchesFound: allMatches.length,
@@ -288,7 +283,7 @@ class BskyPersonaFollow extends BaseTool {
     const toFollow = allMatches.slice(0, maxFollows);
 
     if (toFollow.length === 0) {
-      return `📊 **Persona Profile Search Results (Hybrid Approach)**\n\nCollected ${allProfiles.size} profiles (${profilesFromSuggested} suggested + ${profilesFromSearch} search results)\nEvaluated ${profilesScanned} profiles against ${personas.length} personas.\n\n❌ No profiles found matching threshold of ${matchThreshold}/100.\n\nStats:\n- ${profilesSkippedLowFollowers} had <1 follower\n- ${profilesSkippedAlreadyFollowed} already followed\n- ${profilesBelowThreshold} scored below threshold\n\nTry lowering matchThreshold or check persona definitions.`;
+      return `📊 **Persona Profile Search Results (Hybrid Approach)**\n\nCollected ${allProfiles.size} profiles (${profilesFromSuggested} suggested + ${profilesFromSearch} search results)\nEvaluated ${profilesScanned} profiles against ${personas.length} personas.\n\n❌ No profiles found matching threshold of ${matchThreshold}/100.\n\nStats:\n- ${profilesSkippedAlreadyFollowed} already followed\n- ${profilesBelowThreshold} scored below threshold\n\n${allScores.length > 0 ? `Top scores: ${allScores.sort((a, b) => b.score - a.score).slice(0, 3).map(s => `${s.handle}=${s.score}`).join(', ')}\n\n` : ''}Try lowering matchThreshold or check persona definitions.`;
     }
 
     // Follow profiles (or dry-run)
@@ -453,15 +448,23 @@ class BskyPersonaFollow extends BaseTool {
 - Handle: ${profile.handle}
 - Display Name: ${profile.displayName || 'Not set'}
 - Bio: ${profile.description || 'No bio'}
-- Followers: ${profile.followersCount}
-- Following: ${profile.followingCount}
-- Posts: ${profile.postsCount}
 
 Score 0-100 (0=no match, 100=perfect match). Consider:
-1. Bio mentions persona industry, job titles, or interests
-2. Follower/following counts indicate real active account (not bot)
-3. Display name or handle suggests relevant professional identity
-4. Account activity (posts count) shows engagement
+1. Bio mentions persona industry, job titles, or interests (HIGH PRIORITY - must have substantive bio)
+2. Display name or handle suggests relevant professional identity
+3. Bio shows genuine professional persona (not spam/bot - look for complete sentences, specific expertise)
+4. **CRITICAL: If bio is empty, generic, or spam-like, score must be 0-20 maximum**
+
+Examples of LOW scores:
+- Empty bio or "No bio" → 0
+- Generic bios like "crypto enthusiast" → 10
+- Promotional/spam bios → 0
+- Single emoji or keyword → 5
+
+Examples of HIGH scores:
+- Detailed professional bio with job title + industry → 70-90
+- Bio mentions specific expertise and pain points → 80-100
+- Clear professional identity matching persona → 90-100
 
 Respond ONLY with JSON:
 {
@@ -551,7 +554,6 @@ Respond ONLY with JSON:
       report += `**${i + 1}. @${match.profile.handle}** (Score: ${match.matchScore}/100) ${sourceEmoji}\n`;
       report += `   - Name: ${match.profile.displayName || 'Not set'}\n`;
       report += `   - Bio: ${match.profile.description || 'No bio'}\n`;
-      report += `   - Stats: ${match.profile.followersCount} followers, ${match.profile.postsCount} posts\n`;
       report += `   - Persona: ${match.persona.name}\n`;
       report += `   - Why: ${match.matchReason}\n`;
 
