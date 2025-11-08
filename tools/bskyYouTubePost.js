@@ -123,14 +123,37 @@ class BskyYouTubePost extends BaseTool {
         return '❌ Failed to generate post text';
       }
 
-      // Step 4: Add YouTube link
+      // Step 4: Add YouTube link with facets for clickability
       const finalPost = `${postText}\n\n🎥 ${youtubeUrl}`;
 
-      this.log('info', 'Post generated', { length: finalPost.length });
+      // Calculate byte position of URL for facets (Bluesky uses UTF-8 byte positions)
+      const textBeforeUrl = `${postText}\n\n🎥 `;
+      const byteEncoder = new TextEncoder();
+      const byteStart = byteEncoder.encode(textBeforeUrl).length;
+      const byteEnd = byteEncoder.encode(finalPost).length;
+
+      // Create facet for clickable link
+      const facets = [{
+        index: {
+          byteStart,
+          byteEnd
+        },
+        features: [{
+          $type: 'app.bsky.richtext.facet#link',
+          uri: youtubeUrl
+        }]
+      }];
+
+      this.log('info', 'Post generated with facets', {
+        length: finalPost.length,
+        facets: facets.length,
+        urlByteRange: `${byteStart}-${byteEnd}`
+      });
 
       // Step 5: Post to Bluesky (ALWAYS - no draft mode)
       return await this.postToBsky({
         text: finalPost,
+        facets,
         videoId,
         personaIds,
         videoAnalysis,
@@ -441,11 +464,12 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
   /**
    * Post to Bluesky
    */
-  async postToBsky({ text, videoId, personaIds, videoAnalysis, bsky }) {
+  async postToBsky({ text, facets, videoId, personaIds, videoAnalysis, bsky }) {
     try {
-      this.log('info', 'Posting to Bluesky', { textLength: text.length });
+      this.log('info', 'Posting to Bluesky', { textLength: text.length, facetsCount: facets?.length || 0 });
 
       const result = await bsky.createPost(text, {
+        facets: facets || [], // Pass facets for clickable links
         youtubeVideoId: videoId,
         targetPersonas: personaIds || []
       });

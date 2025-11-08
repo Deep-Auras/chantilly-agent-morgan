@@ -748,11 +748,17 @@ class BskyService {
         langs: options.langs || ['en']
       };
 
+      // Add facets if provided (for clickable links, mentions, hashtags)
+      if (options.facets && Array.isArray(options.facets) && options.facets.length > 0) {
+        postData.facets = options.facets;
+      }
+
       logger.info('Calling BskyAgent.post() with data', {
         textLength: postData.text.length,
         textPreview: postData.text.substring(0, 100),
         createdAt: postData.createdAt,
-        langs: postData.langs
+        langs: postData.langs,
+        facetsCount: postData.facets?.length || 0
       });
 
       const response = await this.agent.post(postData);
