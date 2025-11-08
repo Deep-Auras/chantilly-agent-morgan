@@ -341,7 +341,8 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
       postText = postText.replace(/\*/g, '');
 
       // Ensure within character limit (leaving room for URL)
-      const urlSpace = 30; // Space for "\n\n🎥 " + short URL
+      // "\n\n🎥 " (4 chars) + full YouTube URL (up to 43 chars) = 47 chars total
+      const urlSpace = 50; // Safety margin for full-length YouTube URLs
       if (postText.length > (maxLength - urlSpace)) {
         postText = this.truncateAtSentence(postText, maxLength - urlSpace);
       }
