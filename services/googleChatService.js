@@ -197,10 +197,35 @@ class GoogleChatService {
 
       const eventData = {
         type: 'MESSAGE',
+        message: message, // Include message for threadKey extraction
         space: space,
         user: user
       };
 
+      // Check if this might trigger a long-running tool (>45s timeout)
+      // Pattern detection for YouTube URLs (BskyYouTubePost has 12min timeout)
+      const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/i.test(message.text);
+      const mentionsBluesky = /bluesky|bsky/i.test(message.text);
+      const isLongRunningRequest = hasYouTubeUrl && mentionsBluesky;
+
+      if (isLongRunningRequest) {
+        // ASYNC MODE: Return immediate acknowledgment, process in background
+        logger.info('Long-running tool detected, using async response', {
+          hasYouTubeUrl,
+          mentionsBluesky
+        });
+
+        // Process asynchronously and send result via Chat API
+        this.processMessageAsync(messageData, eventData, conversationId)
+          .catch(error => {
+            logger.error('Async message processing failed', { error: error.message });
+          });
+
+        // Return immediate acknowledgment
+        return this.createCardResponse('⏳ Processing your request... This may take up to 2 minutes for video analysis. I\'ll send the result shortly.');
+      }
+
+      // SYNC MODE: Standard flow for quick operations (<45s)
       const result = await gemini.processMessage(messageData, eventData);
 
       // result may be null if tool handled messaging, or an object with reply
@@ -216,6 +241,51 @@ class GoogleChatService {
       return {
         text: '❌ Sorry, I encountered an error processing your message.'
       };
+    }
+  }
+
+  /**
+   * Process message asynchronously and send result via Chat API
+   */
+  async processMessageAsync(messageData, eventData, conversationId) {
+    try {
+      logger.info('Starting async message processing', {
+        messageText: messageData.message.substring(0, 100)
+      });
+
+      const gemini = getGeminiService();
+      const result = await gemini.processMessage(messageData, eventData);
+
+      const responseText = result?.reply || 'Processing complete.';
+
+      // Cache conversation history
+      await this.cacheMessage(conversationId, eventData.user, messageData.message, responseText);
+
+      // Send result via Chat API (async, not webhook response)
+      const threadKey = eventData.message?.thread?.name || null;
+      await this.sendMessage(eventData.space.name, responseText, threadKey);
+
+      logger.info('Async message processing complete', {
+        spaceName: eventData.space.name,
+        userId: eventData.user.name
+      });
+    } catch (error) {
+      logger.error('Async processing failed, sending error to user', {
+        error: error.message,
+        spaceName: eventData.space.name
+      });
+
+      try {
+        await this.sendMessage(
+          eventData.space.name,
+          `❌ Sorry, I encountered an error: ${error.message}`,
+          eventData.message?.thread?.name || null
+        );
+      } catch (sendError) {
+        logger.error('Failed to send error message to user', {
+          error: sendError.message
+        });
+      }
     }
   }
 
