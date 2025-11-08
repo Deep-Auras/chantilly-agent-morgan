@@ -244,7 +244,7 @@ class GoogleChatService {
       }
 
       const messageEntry = {
-        timestamp: this.FieldValue.serverTimestamp(),
+        timestamp: new Date().toISOString(), // Use ISO string instead of serverTimestamp (not allowed in arrays)
         userId: user.name,
         userName: user.displayName || user.name,
         text: messageText,

@@ -17,7 +17,6 @@
 
 const BaseTool = require('../lib/baseTool');
 const { getBskyService } = require('../services/bskyService');
-const { getGeminiService } = require('../services/gemini');
 const { getVertexAIClient, extractGeminiText } = require('../config/gemini');
 
 class BskyYouTubePost extends BaseTool {
@@ -88,7 +87,6 @@ class BskyYouTubePost extends BaseTool {
 
       // Initialize services
       const bsky = getBskyService();
-      const gemini = getGeminiService();
 
       const bskyInitialized = await bsky.initialize();
       if (!bskyInitialized) {
@@ -98,7 +96,7 @@ class BskyYouTubePost extends BaseTool {
       // Step 1: Analyze video with Gemini 2.5 Pro
       this.log('info', 'Analyzing video content with Gemini 2.5 Pro');
 
-      const videoAnalysis = await this.analyzeVideo(youtubeUrl, gemini);
+      const videoAnalysis = await this.analyzeVideo(youtubeUrl);
 
       if (!videoAnalysis.success) {
         return `❌ Video analysis failed: ${videoAnalysis.error}`;
@@ -123,8 +121,7 @@ class BskyYouTubePost extends BaseTool {
         personas,
         tone,
         maxLength,
-        includeFact,
-        gemini
+        includeFact
       });
 
       if (!postText) {
@@ -193,7 +190,7 @@ class BskyYouTubePost extends BaseTool {
    * Analyze YouTube video with Gemini 2.5 Pro via Vertex AI
    * CRITICAL: Requires Vertex AI client for YouTube URL support
    */
-  async analyzeVideo(youtubeUrl, gemini) {
+  async analyzeVideo(youtubeUrl) {
     const analysisPrompt = `Analyze this YouTube video and provide:
 
 1. **Main Topic** (1 sentence): What is the video primarily about?
@@ -288,7 +285,7 @@ Format response as JSON:
   /**
    * Generate persona-tailored Bluesky post
    */
-  async generatePost({ videoAnalysis, personas, tone, maxLength, includeFact, gemini }) {
+  async generatePost({ videoAnalysis, personas, tone, maxLength, includeFact }) {
     let personaContext = '';
 
     if (personas.length > 0) {
@@ -330,18 +327,28 @@ DO NOT include the YouTube link (will be added separately).
 Format: Plain text only, no markdown. Natural line breaks for readability.`;
 
     try {
-      const response = await gemini.generateResponse(postPrompt, {
-        temperature: 0.7, // Higher creativity for engaging content
-        maxTokens: 300
+      // Use Vertex AI client directly for simple content generation
+      const vertexAI = getVertexAIClient();
+
+      const response = await vertexAI.models.generateContent({
+        model: 'gemini-2.0-flash-exp',
+        contents: [{ role: 'user', parts: [{ text: postPrompt }] }],
+        generationConfig: {
+          temperature: 0.7, // Higher creativity for engaging content
+          maxOutputTokens: 300
+        }
       });
 
-      if (!response) {
+      // Use centralized response extraction
+      const responseText = extractGeminiText(response);
+
+      if (!responseText) {
         this.log('error', 'Empty response from Gemini post generation');
         return null;
       }
 
       // Clean up response
-      let postText = response.trim();
+      let postText = responseText.trim();
 
       // Remove any markdown formatting
       postText = postText.replace(/\*\*/g, '');
