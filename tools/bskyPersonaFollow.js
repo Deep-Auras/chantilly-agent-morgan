@@ -103,7 +103,7 @@ class BskyPersonaFollow extends BaseTool {
   }
 
   /**
-   * Search for profiles and follow based on persona match
+   * Search for profiles and follow based on persona match (HYBRID APPROACH)
    */
   async searchAndFollow({ personaIds, matchThreshold, maxFollows, dryRun, toolContext }) {
     const bsky = getBskyService();
@@ -120,99 +120,154 @@ class BskyPersonaFollow extends BaseTool {
 
     this.log('info', 'Personas loaded', { count: personas.length });
 
-    // Get suggested follows from Bluesky's algorithm (real, active accounts)
+    // HYBRID APPROACH: Collect profiles from BOTH suggested follows AND search
+    const allProfiles = new Map(); // Use Map to deduplicate by DID
+    let profilesFromSuggested = 0;
+    let profilesFromSearch = 0;
+
+    // 1. Get suggested follows from Bluesky's algorithm (real, active accounts)
+    this.log('info', 'Fetching Bluesky suggested follows');
+
+    try {
+      const suggestedProfiles = await bsky.getSuggestedFollows();
+
+      for (const profile of suggestedProfiles) {
+        if (!allProfiles.has(profile.did)) {
+          allProfiles.set(profile.did, { ...profile, source: 'suggested' });
+          profilesFromSuggested++;
+        }
+      }
+
+      this.log('info', 'Suggested follows fetched', { count: profilesFromSuggested });
+    } catch (error) {
+      this.log('error', 'Failed to fetch suggested follows', { error: error.message });
+    }
+
+    // 2. Search for profiles using persona-based queries
+    this.log('info', 'Searching for profiles using persona keywords');
+
+    const searchQueries = [];
+    for (const persona of personas) {
+      const queries = this.generateSearchQueries(persona);
+      searchQueries.push(...queries.map(q => ({ query: q, persona })));
+    }
+
+    this.log('info', 'Generated search queries', { count: searchQueries.length });
+
+    // Search profiles (limit to avoid quota exhaustion)
+    const maxSearches = Math.min(searchQueries.length, 10);
+
+    for (let i = 0; i < maxSearches; i++) {
+      const { query, persona } = searchQueries[i];
+
+      try {
+        this.log('info', 'Searching profiles', { query, persona: persona.name });
+
+        const profiles = await bsky.searchProfiles(query, 20);
+
+        for (const profile of profiles) {
+          // Add to collection if not already present (deduplicate by DID)
+          if (!allProfiles.has(profile.did)) {
+            allProfiles.set(profile.did, { ...profile, source: 'search' });
+            profilesFromSearch++;
+          }
+        }
+      } catch (error) {
+        this.log('warn', 'Profile search failed', { query, error: error.message });
+      }
+    }
+
+    this.log('info', 'Profile collection complete', {
+      totalProfiles: allProfiles.size,
+      fromSuggested: profilesFromSuggested,
+      fromSearch: profilesFromSearch
+    });
+
+    // 3. Score all unique profiles against ALL personas
     const allMatches = [];
-    const maxCandidates = 30; // Evaluate up to 30 suggested profiles
+    const maxCandidates = 40; // Evaluate up to 40 total profiles (from both sources)
     let profilesScanned = 0;
     let profilesSkippedLowFollowers = 0;
     let profilesSkippedAlreadyFollowed = 0;
     let profilesBelowThreshold = 0;
     const allScores = []; // Track all scores for debugging
 
-    this.log('info', 'Fetching Bluesky suggested follows');
+    for (const [did, profile] of allProfiles) {
+      // Stop if we've evaluated enough profiles
+      if (profilesScanned >= maxCandidates) {
+        this.log('info', 'Evaluated enough profiles, stopping', { profilesScanned });
+        break;
+      }
 
-    try {
-      // Get Bluesky's suggested follows (returns ~50 profiles)
-      const suggestedProfiles = await bsky.getSuggestedFollows();
+      profilesScanned++;
 
-      this.log('info', 'Suggested follows fetched', { count: suggestedProfiles.length });
+      // Filter out 0-follower accounts (likely spam/new accounts)
+      if (profile.followersCount < 1) {
+        profilesSkippedLowFollowers++;
+        continue;
+      }
 
-      // Score each suggested profile against ALL personas
-      for (const profile of suggestedProfiles) {
-        // Stop if we've evaluated enough profiles
-        if (profilesScanned >= maxCandidates) {
-          this.log('info', 'Evaluated enough profiles, stopping', { profilesScanned });
-          break;
-        }
+      // Skip if already followed
+      const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
+      if (alreadyFollowed) {
+        profilesSkippedAlreadyFollowed++;
+        continue;
+      }
 
-        profilesScanned++;
+      // AI match scoring against ALL personas (find best match)
+      let bestMatch = null;
+      let bestScore = 0;
 
-        // Filter out 0-follower accounts (likely spam/new accounts)
-        if (profile.followersCount < 1) {
-          profilesSkippedLowFollowers++;
-          continue;
-        }
+      for (const persona of personas) {
+        const matchScore = await this.scoreProfileMatch(profile, persona, gemini);
 
-        // Skip if already followed
-        const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
-        if (alreadyFollowed) {
-          profilesSkippedAlreadyFollowed++;
-          continue;
-        }
-
-        // AI match scoring against ALL personas (find best match)
-        let bestMatch = null;
-        let bestScore = 0;
-
-        for (const persona of personas) {
-          const matchScore = await this.scoreProfileMatch(profile, persona, gemini);
-
-          // Log individual persona score
-          this.log('debug', 'Profile scored', {
-            handle: profile.handle,
-            persona: persona.name,
-            score: matchScore.score,
-            threshold: matchThreshold,
-            reason: matchScore.reason
-          });
-
-          if (matchScore.score > bestScore) {
-            bestScore = matchScore.score;
-            bestMatch = {
-              persona,
-              score: matchScore.score,
-              reason: matchScore.reason
-            };
-          }
-        }
-
-        // Track score for reporting
-        allScores.push({
+        // Log individual persona score
+        this.log('debug', 'Profile scored', {
           handle: profile.handle,
-          score: bestScore,
-          reason: bestMatch?.reason || 'No match'
+          persona: persona.name,
+          score: matchScore.score,
+          threshold: matchThreshold,
+          source: profile.source,
+          reason: matchScore.reason
         });
 
-        // Add to matches if above threshold
-        if (bestScore >= matchThreshold) {
-          allMatches.push({
-            profile,
-            persona: bestMatch.persona,
-            matchScore: bestScore,
-            matchReason: bestMatch.reason
-          });
-
-          this.log('info', 'Profile matched', {
-            handle: profile.handle,
-            persona: bestMatch.persona.name,
-            score: bestScore
-          });
-        } else {
-          profilesBelowThreshold++;
+        if (matchScore.score > bestScore) {
+          bestScore = matchScore.score;
+          bestMatch = {
+            persona,
+            score: matchScore.score,
+            reason: matchScore.reason
+          };
         }
       }
-    } catch (error) {
-      this.log('error', 'Failed to fetch suggested follows', { error: error.message });
+
+      // Track score for reporting
+      allScores.push({
+        handle: profile.handle,
+        score: bestScore,
+        source: profile.source,
+        reason: bestMatch?.reason || 'No match'
+      });
+
+      // Add to matches if above threshold
+      if (bestScore >= matchThreshold) {
+        allMatches.push({
+          profile,
+          persona: bestMatch.persona,
+          matchScore: bestScore,
+          matchReason: bestMatch.reason,
+          source: profile.source
+        });
+
+        this.log('info', 'Profile matched', {
+          handle: profile.handle,
+          persona: bestMatch.persona.name,
+          score: bestScore,
+          source: profile.source
+        });
+      } else {
+        profilesBelowThreshold++;
+      }
     }
 
     // Log summary statistics
@@ -233,7 +288,7 @@ class BskyPersonaFollow extends BaseTool {
     const toFollow = allMatches.slice(0, maxFollows);
 
     if (toFollow.length === 0) {
-      return `📊 **Persona Profile Search Results**\n\nEvaluated ${profilesScanned} Bluesky suggested profiles against ${personas.length} personas.\n\n❌ No profiles found matching threshold of ${matchThreshold}/100.\n\nStats: ${profilesSkippedLowFollowers} had <1 follower, ${profilesSkippedAlreadyFollowed} already followed, ${profilesBelowThreshold} scored below threshold.\n\nTry lowering matchThreshold or check persona definitions.`;
+      return `📊 **Persona Profile Search Results (Hybrid Approach)**\n\nCollected ${allProfiles.size} profiles (${profilesFromSuggested} suggested + ${profilesFromSearch} search results)\nEvaluated ${profilesScanned} profiles against ${personas.length} personas.\n\n❌ No profiles found matching threshold of ${matchThreshold}/100.\n\nStats:\n- ${profilesSkippedLowFollowers} had <1 follower\n- ${profilesSkippedAlreadyFollowed} already followed\n- ${profilesBelowThreshold} scored below threshold\n\nTry lowering matchThreshold or check persona definitions.`;
     }
 
     // Follow profiles (or dry-run)
@@ -459,11 +514,17 @@ Respond ONLY with JSON:
    * Format follow report for user
    */
   formatFollowReport({ personas, matches, followResults, dryRun, matchThreshold }) {
-    let report = `📊 **Bluesky Persona-Based Profile ${dryRun ? 'Search' : 'Follow'} Report**\n\n`;
+    let report = `📊 **Bluesky Persona-Based Profile ${dryRun ? 'Search' : 'Follow'} Report**\n`;
+    report += `**Strategy:** Hybrid (Suggested Follows + Search)\n\n`;
 
     report += `**Personas Targeted:** ${personas.map(p => p.name).join(', ')}\n`;
     report += `**Match Threshold:** ${matchThreshold}/100\n`;
-    report += `**Profiles Found:** ${matches.length}\n\n`;
+    report += `**Profiles Found:** ${matches.length}\n`;
+
+    // Count matches by source
+    const fromSuggested = matches.filter(m => m.source === 'suggested').length;
+    const fromSearch = matches.filter(m => m.source === 'search').length;
+    report += `**Sources:** ${fromSuggested} from suggested, ${fromSearch} from search\n\n`;
 
     if (dryRun) {
       report += `**Mode:** Dry-run (no actual follows performed)\n\n`;
@@ -486,7 +547,8 @@ Respond ONLY with JSON:
       const match = toShow[i];
       const followResult = followResults.find(r => r.profile.did === match.profile.did);
 
-      report += `**${i + 1}. @${match.profile.handle}** (Score: ${match.matchScore}/100)\n`;
+      const sourceEmoji = match.source === 'suggested' ? '🤖' : '🔍';
+      report += `**${i + 1}. @${match.profile.handle}** (Score: ${match.matchScore}/100) ${sourceEmoji}\n`;
       report += `   - Name: ${match.profile.displayName || 'Not set'}\n`;
       report += `   - Bio: ${match.profile.description || 'No bio'}\n`;
       report += `   - Stats: ${match.profile.followersCount} followers, ${match.profile.postsCount} posts\n`;
@@ -513,6 +575,7 @@ Respond ONLY with JSON:
       report += `- Review matches above\n`;
       report += `- Run with dryRun=false to actually follow profiles\n`;
       report += `- Adjust matchThreshold if needed (lower = more profiles, higher = more selective)\n`;
+      report += `\n**Source Legend:** 🤖 = Suggested follows, 🔍 = Search results\n`;
     }
 
     return report;
