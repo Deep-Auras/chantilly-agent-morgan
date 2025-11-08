@@ -55,7 +55,7 @@ Respond in JSON format:
 
     // Official Google Cloud format for YouTube URLs with Vertex AI
     const response = await client.models.generateContent({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-2.5-pro',
       contents: [
         {
           fileData: {
