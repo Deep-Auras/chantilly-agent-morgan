@@ -761,8 +761,17 @@ class BskyService {
         throw new Error('Post creation failed');
       }
 
+      logger.info('Bluesky post created successfully', {
+        uri: response.uri,
+        cid: response.cid
+      });
+
+      // Sanitize URI for Firestore document ID (URIs contain // which is invalid)
+      // Example URI: at://did:plc:xxx/app.bsky.feed.post/xxx
+      const sanitizedUri = response.uri.replace(/\//g, '_');
+
       // Store in Firestore
-      await this.db.collection('bluesky-posts').doc(response.uri).set({
+      await this.db.collection('bluesky-posts').doc(sanitizedUri).set({
         uri: response.uri,
         cid: response.cid,
         text,
@@ -773,10 +782,7 @@ class BskyService {
         lastUpdated: this.FieldValue.serverTimestamp()
       });
 
-      logger.info('Post created successfully', {
-        uri: response.uri,
-        cid: response.cid
-      });
+      logger.info('Post saved to Firestore', { sanitizedUri });
 
       return {
         uri: response.uri,
