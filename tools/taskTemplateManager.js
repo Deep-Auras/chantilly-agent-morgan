@@ -85,7 +85,7 @@ class TaskTemplateManagerTool extends BaseTool {
       const allTemplates = await this.templatesModel.getAllTemplates();
 
       const templateList = allTemplates.map(t =>
-        `• "${t.name}" (ID: ${t.templateId})`
+        `- "${t.name}" (ID: ${t.templateId})`
       ).join('\n');
 
       return `${this.description}\n\n**AVAILABLE TEMPLATES (use exact IDs):**\n${templateList}\n\nIMPORTANT: When user mentions a template by name (e.g., "Slipped through the Cracks"), look up the exact templateId from the list above. DO NOT guess or create template IDs.`;
@@ -399,11 +399,11 @@ class TaskTemplateManagerTool extends BaseTool {
       });
 
       message += '**Template Management Commands:**\n';
-      message += '• View details: `view template [template-id]`\n';
-      message += '• Modify template: `modify template [template-id]`\n';
-      message += '• Toggle testing: `toggle testing mode [template-id]`\n';
-      message += '• Enable/disable: `enable/disable template [template-id]`\n';
-      message += '• Delete template: `delete template [template-id]`\n';
+      message += '- View details: `view template [template-id]`\n';
+      message += '- Modify template: `modify template [template-id]`\n';
+      message += '- Toggle testing: `toggle testing mode [template-id]`\n';
+      message += '- Enable/disable: `enable/disable template [template-id]`\n';
+      message += '- Delete template: `delete template [template-id]`\n';
 
       return {
         success: true,
@@ -433,24 +433,24 @@ class TaskTemplateManagerTool extends BaseTool {
       let message = `📋 **Template Details: ${template.name}**\n\n`;
 
       message += '**Basic Information:**\n';
-      message += `• ID: \`${template.templateId}\`\n`;
-      message += `• Name: ${template.name}\n`;
-      message += `• Category: ${Array.isArray(template.category) ? template.category.join(', ') : template.category}\n`;
-      message += `• Description: ${template.description || 'No description'}\n`;
-      message += `• Version: ${template.version || 'N/A'}\n`;
-      message += `• Status: ${template.enabled ? '✅ Enabled' : '🚫 Disabled'}\n`;
-      message += `• Mode: ${template.testing ? '🧪 Testing' : '🔒 Production'}\n\n`;
+      message += `- ID: \`${template.templateId}\`\n`;
+      message += `- Name: ${template.name}\n`;
+      message += `- Category: ${Array.isArray(template.category) ? template.category.join(', ') : template.category}\n`;
+      message += `- Description: ${template.description || 'No description'}\n`;
+      message += `- Version: ${template.version || 'N/A'}\n`;
+      message += `- Status: ${template.enabled ? '✅ Enabled' : '🚫 Disabled'}\n`;
+      message += `- Mode: ${template.testing ? '🧪 Testing' : '🔒 Production'}\n\n`;
 
       message += '**Execution Details:**\n';
-      message += `• Estimated Steps: ${template.definition?.estimatedSteps || 'N/A'}\n`;
-      message += `• Estimated Duration: ${template.definition?.estimatedDuration ? this.formatDuration(template.definition.estimatedDuration) : 'N/A'}\n`;
-      message += `• Memory Requirement: ${template.definition?.memoryRequirement || 'N/A'}\n`;
-      message += `• Required Services: ${template.definition?.requiredServices?.join(', ') || 'None specified'}\n\n`;
+      message += `- Estimated Steps: ${template.definition?.estimatedSteps || 'N/A'}\n`;
+      message += `- Estimated Duration: ${template.definition?.estimatedDuration ? this.formatDuration(template.definition.estimatedDuration) : 'N/A'}\n`;
+      message += `- Memory Requirement: ${template.definition?.memoryRequirement || 'N/A'}\n`;
+      message += `- Required Services: ${template.definition?.requiredServices?.join(', ') || 'None specified'}\n\n`;
 
       if (template.definition?.parameterSchema?.properties) {
         message += '**Parameters:**\n';
         Object.entries(template.definition.parameterSchema.properties).forEach(([key, schema]) => {
-          message += `• ${key}: ${schema.type} (${schema.description || 'No description'})\n`;
+          message += `- ${key}: ${schema.type} (${schema.description || 'No description'})\n`;
         });
         message += '\n';
       }
@@ -460,15 +460,15 @@ class TaskTemplateManagerTool extends BaseTool {
       }
 
       message += '**Metadata:**\n';
-      message += `• Created: ${template.createdAt ? new Date(template.createdAt).toLocaleString() : 'N/A'}\n`;
-      message += `• Last Modified: ${template.updatedAt ? new Date(template.updatedAt).toLocaleString() : 'N/A'}\n`;
+      message += `- Created: ${template.createdAt ? new Date(template.createdAt).toLocaleString() : 'N/A'}\n`;
+      message += `- Last Modified: ${template.updatedAt ? new Date(template.updatedAt).toLocaleString() : 'N/A'}\n`;
 
       if (template.lastRepaired) {
-        message += `• Last Auto-Repair: ${new Date(template.lastRepaired).toLocaleString()}\n`;
-        message += `• Repair Attempts: ${template.repairAttempts || 0}\n`;
+        message += `- Last Auto-Repair: ${new Date(template.lastRepaired).toLocaleString()}\n`;
+        message += `- Repair Attempts: ${template.repairAttempts || 0}\n`;
       }
 
-      message += `• Script Length: ${template.executionScript?.length || 0} characters\n`;
+      message += `- Script Length: ${template.executionScript?.length || 0} characters\n`;
 
       return {
         success: true,

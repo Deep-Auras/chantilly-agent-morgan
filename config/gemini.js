@@ -139,10 +139,31 @@ function extractGeminiText(result, options = {}) {
   return textParts.map(part => part.text || '').join('');
 }
 
+/**
+ * Get Vertex AI client for features that require service account auth
+ * (e.g., YouTube URL support)
+ *
+ * Uses Application Default Credentials from service account
+ */
+let vertexAIClient;
+
+function getVertexAIClient() {
+  if (!vertexAIClient) {
+    vertexAIClient = new GoogleGenAI({
+      vertexai: true,  // CRITICAL: lowercase 'ai', boolean value (per official Google Cloud docs)
+      project: config.GOOGLE_CLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT,
+      location: process.env.VERTEX_AI_LOCATION || 'us-central1'
+    });
+    logger.info('Vertex AI client initialized for YouTube URL support');
+  }
+  return vertexAIClient;
+}
+
 module.exports = {
   initializeGemini,
   getGeminiModel,
   getGeminiClient,
+  getVertexAIClient,
   createCustomModel,
   extractGeminiText
 };

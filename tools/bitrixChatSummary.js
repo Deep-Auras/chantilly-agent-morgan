@@ -521,7 +521,7 @@ Be thorough and add value through critical analysis.`;
 
 ${summary}
 
-*Summary generated on ${new Date().toLocaleString()} • Chat ID: ${dialogId}*`;
+*Summary generated on ${new Date().toLocaleString()} - Chat ID: ${dialogId}*`;
   }
 
   async cleanup() {

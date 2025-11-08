@@ -197,10 +197,52 @@ class GoogleChatService {
 
       const eventData = {
         type: 'MESSAGE',
+        message: message, // Include message for threadKey extraction
         space: space,
         user: user
       };
 
+      // Check if this might trigger a long-running tool (>60s timeout)
+      const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/i.test(message.text);
+      const mentionsBluesky = /bluesky|bsky/i.test(message.text);
+      const isFeedAnalysis = /analyz|prospect|feed/i.test(message.text);
+      const isPersonaFollow = /follow|discover|find\s+(people|profiles|users)|persona.*match/i.test(message.text);
+
+      // Pattern detection for long-running Bluesky tools:
+      // 1. BskyYouTubePost: YouTube URL + Bluesky mention (15min timeout)
+      // 2. BskyFeedAnalyzer: Feed analysis + Bluesky mention (15min timeout)
+      // 3. BskyPersonaFollow: Persona following + Bluesky mention (15min timeout)
+      const isLongRunningRequest = mentionsBluesky && (hasYouTubeUrl || isFeedAnalysis || isPersonaFollow);
+
+      if (isLongRunningRequest) {
+        // ASYNC MODE: Return immediate acknowledgment, process in background
+        logger.info('Long-running Bluesky tool detected, using async response', {
+          hasYouTubeUrl,
+          isFeedAnalysis,
+          isPersonaFollow,
+          mentionsBluesky
+        });
+
+        // Process asynchronously and send result via Chat API
+        this.processMessageAsync(messageData, eventData, conversationId)
+          .catch(error => {
+            logger.error('Async message processing failed', { error: error.message });
+          });
+
+        // Return immediate acknowledgment with specific message
+        let acknowledgeMessage;
+        if (hasYouTubeUrl) {
+          acknowledgeMessage = '⏳ Processing your YouTube video for Bluesky... This may take up to 2 minutes. I\'ll send the result shortly.';
+        } else if (isPersonaFollow) {
+          acknowledgeMessage = '⏳ Finding and evaluating Bluesky profiles matching your personas... This may take 1-2 minutes. I\'ll send the result shortly.';
+        } else {
+          acknowledgeMessage = '⏳ Analyzing your Bluesky feed... This may take 1-2 minutes. I\'ll send the result shortly.';
+        }
+
+        return this.createCardResponse(acknowledgeMessage);
+      }
+
+      // SYNC MODE: Standard flow for quick operations (<45s)
       const result = await gemini.processMessage(messageData, eventData);
 
       // result may be null if tool handled messaging, or an object with reply
@@ -220,6 +262,51 @@ class GoogleChatService {
   }
 
   /**
+   * Process message asynchronously and send result via Chat API
+   */
+  async processMessageAsync(messageData, eventData, conversationId) {
+    try {
+      logger.info('Starting async message processing', {
+        messageText: messageData.message.substring(0, 100)
+      });
+
+      const gemini = getGeminiService();
+      const result = await gemini.processMessage(messageData, eventData);
+
+      const responseText = result?.reply || 'Processing complete.';
+
+      // Cache conversation history
+      await this.cacheMessage(conversationId, eventData.user, messageData.message, responseText);
+
+      // Send result via Chat API (async, not webhook response)
+      const threadKey = eventData.message?.thread?.name || null;
+      await this.sendMessage(eventData.space.name, responseText, threadKey);
+
+      logger.info('Async message processing complete', {
+        spaceName: eventData.space.name,
+        userId: eventData.user.name
+      });
+    } catch (error) {
+      logger.error('Async processing failed, sending error to user', {
+        error: error.message,
+        spaceName: eventData.space.name
+      });
+
+      try {
+        await this.sendMessage(
+          eventData.space.name,
+          `❌ Sorry, I encountered an error: ${error.message}`,
+          eventData.message?.thread?.name || null
+        );
+      } catch (sendError) {
+        logger.error('Failed to send error message to user', {
+          error: sendError.message
+        });
+      }
+    }
+  }
+
+  /**
    * Cache message in conversation history
    */
   async cacheMessage(spaceId, user, messageText, response) {
@@ -227,12 +314,28 @@ class GoogleChatService {
       const conversationRef = this.db.collection('conversations').doc(spaceId);
       const conversationDoc = await conversationRef.get();
 
+      // Sanitize response to only include serializable data
+      let sanitizedResponse = response;
+      if (typeof response === 'object') {
+        // Extract only the text content if response is an object
+        sanitizedResponse = response?.text || response?.reply || JSON.stringify(response);
+      } else if (typeof response !== 'string') {
+        // Convert non-string primitives to string
+        sanitizedResponse = String(response);
+      }
+
+      // Truncate very long responses (Firestore has 1MB limit per document)
+      const MAX_RESPONSE_LENGTH = 10000;
+      if (sanitizedResponse.length > MAX_RESPONSE_LENGTH) {
+        sanitizedResponse = sanitizedResponse.substring(0, MAX_RESPONSE_LENGTH) + '... [truncated]';
+      }
+
       const messageEntry = {
-        timestamp: this.FieldValue.serverTimestamp(),
+        timestamp: new Date().toISOString(), // Use ISO string instead of serverTimestamp (not allowed in arrays)
         userId: user.name,
         userName: user.displayName || user.name,
         text: messageText,
-        response: response,
+        response: sanitizedResponse,
         platform: 'google-chat'
       };
 
@@ -258,9 +361,29 @@ class GoogleChatService {
 
       logger.info('Cached Google Chat message', { spaceId, userId: user.name });
     } catch (error) {
-      logger.error('Failed to cache message', { error: error.message });
+      logger.error('Failed to cache message', {
+        error: error.message,
+        stack: error.stack,
+        spaceId,
+        userId: user.name,
+        responseType: typeof response
+      });
       // Don't throw - caching failure shouldn't break message handling
     }
+  }
+
+  /**
+   * Format text for Google Chat (Markdown)
+   * Converts platform-agnostic formatting to Google Chat format
+   */
+  formatForGoogleChat(text) {
+    if (!text) return '';
+
+    return text
+      // Convert **bold** to *bold*
+      .replace(/\*\*([^*]+)\*\*/g, '*$1*')
+      // Convert bullet points: - to •
+      .replace(/^(\s*)- /gm, '$1• ');
   }
 
   /**
@@ -272,7 +395,7 @@ class GoogleChatService {
         chatDataAction: {
           createMessageAction: {
             message: {
-              text: content
+              text: this.formatForGoogleChat(content)
             }
           }
         }
@@ -290,7 +413,7 @@ class GoogleChatService {
       const message = {
         parent: spaceName,
         requestBody: {
-          text: text
+          text: this.formatForGoogleChat(text)
         }
       };
 

@@ -458,7 +458,7 @@ class DrawioGeneratorTool extends BaseTool {
     const knowledgeResults = toolContext.knowledgeResults || [];
     if (knowledgeResults.length > 0) {
       const combinedContent = knowledgeResults
-        .map(result => `• ${result.title}: ${result.preview || result.content}`)
+        .map(result => `- ${result.title}: ${result.preview || result.content}`)
         .join('\n');
       
       if (this.isContentSuitableForDiagram(combinedContent)) {

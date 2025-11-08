@@ -3454,27 +3454,27 @@ Focus on the user's specific request and maintain all existing critical function
    */
   summarizeTemplateChanges(oldTemplate, newTemplate) {
     const changes = [];
-    
+
     if (oldTemplate.name !== newTemplate.name) {
-      changes.push(`• **Name:** "${oldTemplate.name}" → "${newTemplate.name}"`);
+      changes.push(`- **Name:** "${oldTemplate.name}" → "${newTemplate.name}"`);
     }
-    
+
     if (oldTemplate.description !== newTemplate.description) {
-      changes.push('• **Description:** Updated');
+      changes.push('- **Description:** Updated');
     }
-    
+
     if (oldTemplate.executionScript !== newTemplate.executionScript) {
       const oldLength = oldTemplate.executionScript?.length || 0;
       const newLength = newTemplate.executionScript?.length || 0;
       const sizeDiff = newLength - oldLength;
-      changes.push(`• **Execution Script:** Modified (${sizeDiff > 0 ? '+' : ''}${sizeDiff} characters)`);
+      changes.push(`- **Execution Script:** Modified (${sizeDiff > 0 ? '+' : ''}${sizeDiff} characters)`);
     }
-    
+
     if (JSON.stringify(oldTemplate.definition) !== JSON.stringify(newTemplate.definition)) {
-      changes.push('• **Configuration:** Updated parameters or settings');
+      changes.push('- **Configuration:** Updated parameters or settings');
     }
-    
-    return changes.length > 0 ? changes.join('\n') : '• Minor updates and improvements';
+
+    return changes.length > 0 ? changes.join('\n') : '- Minor updates and improvements';
   }
 
   /**

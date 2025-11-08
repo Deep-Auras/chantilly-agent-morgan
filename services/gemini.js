@@ -472,6 +472,12 @@ class GeminiService {
       });
 
       // Configure request for Gemini 2.5 Pro with tools (2025 format)
+      // Let Gemini choose the appropriate tool based on semantic descriptions
+      const toolCallingConfig = {
+        mode: 'ANY'
+        // Do NOT set allowedFunctionNames - let Gemini choose based on tool descriptions
+      };
+
       const requestConfig = {
         model: config.GEMINI_MODEL,
         contents: contents,
@@ -480,10 +486,7 @@ class GeminiService {
             functionDeclarations: toolDeclarations
           }],
           toolConfig: {
-            functionCallingConfig: {
-              mode: 'ANY',
-              allowedFunctionNames: toolDeclarations.map(tool => tool.name)
-            }
+            functionCallingConfig: toolCallingConfig
           },
           generationConfig: {
             temperature: 0.7,
@@ -790,7 +793,13 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
                   }
                   // If result is an object/array without message field, format it for display
                   return JSON.stringify(tr.result, null, 2);
-                }).join('\n\n')}\n\nCRITICAL: If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists. If the tool returned a formatted text message, present it exactly as written. Do NOT fabricate structured data or additional fields that were not in the actual tool output.`
+                }).join('\n\n')}\n\nCRITICAL INSTRUCTIONS:
+1. If the tool returned a formatted message starting with ✅ or containing "Posted to Bluesky" or "created successfully" - the action is ALREADY COMPLETE. DO NOT say "here's a draft" or "for your review". The tool EXECUTED the action.
+2. If the tool says it posted/created/updated something, relay that EXACTLY. DO NOT rewrite success messages as drafts or suggestions.
+3. If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists.
+4. If the tool returned a formatted text message, present it exactly as written.
+5. DO NOT fabricate structured data or additional fields that were not in the actual tool output.
+6. DO NOT add phrases like "I've drafted", "for your review", "let me know if you'd like to post" when the tool already performed the action.`
             }]
           }
         ],
@@ -1376,10 +1385,10 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
 
     suggestions.forEach(tool => {
       // Use userDescription if available, otherwise clean up description
-      const cleanDescription = tool.userDescription || 
+      const cleanDescription = tool.userDescription ||
         tool.description.split('EXAMPLES:')[0].trim() ||
         tool.description.split('.')[0];
-      suggestionText += `• **${tool.name}**: ${cleanDescription}\n`;
+      suggestionText += `- **${tool.name}**: ${cleanDescription}\n`;
     });
 
     if (personality?.traits?.interaction?.engagement === 'engaging') {
@@ -1387,6 +1396,64 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
     }
 
     return response + suggestionText;
+  }
+
+  /**
+   * Generate simple text response without tools (for tool-internal AI calls)
+   * @param {string} prompt - The prompt to send to Gemini
+   * @param {object} options - Generation options (temperature, maxTokens, systemInstruction)
+   * @returns {string} - Generated text response
+   */
+  async generateResponse(prompt, options = {}) {
+    try {
+      const client = getGeminiClient();
+      const {
+        temperature = 0.7,
+        maxTokens = 1024,
+        systemInstruction = null
+      } = options;
+
+      const requestConfig = {
+        model: config.GEMINI_MODEL,
+        contents: [{
+          role: 'user',
+          parts: [{ text: prompt }]
+        }],
+        config: {
+          generationConfig: {
+            temperature,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: maxTokens
+          }
+        }
+      };
+
+      if (systemInstruction) {
+        requestConfig.config.systemInstruction = systemInstruction;
+      }
+
+      const result = await client.models.generateContent(requestConfig);
+
+      // Use centralized response extraction
+      const text = extractGeminiText(result) || '';
+
+      logger.info('Generated simple response', {
+        promptLength: prompt.length,
+        responseLength: text.length,
+        temperature,
+        maxTokens
+      });
+
+      return text;
+    } catch (error) {
+      logger.error('Failed to generate simple response', {
+        error: error.message,
+        stack: error.stack,
+        promptPreview: prompt.substring(0, 100)
+      });
+      throw error;
+    }
   }
 
   /**
