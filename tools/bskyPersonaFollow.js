@@ -152,12 +152,12 @@ class BskyPersonaFollow extends BaseTool {
         for (const profile of profiles) {
           profilesScanned++;
 
-          // Skip profiles with very low follower count (likely spam/bots)
-          // Bluesky is still growing - many real users have < 10 followers
-          if (profile.followersCount < 3) {
-            profilesSkippedLowFollowers++;
-            continue;
-          }
+          // TEMPORARILY DISABLED: Let AI evaluate all profiles regardless of follower count
+          // Bluesky searches returning mostly 0-2 follower accounts - need to see actual data
+          // if (profile.followersCount < 1) {
+          //   profilesSkippedLowFollowers++;
+          //   continue;
+          // }
 
           // Skip if already followed
           const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
