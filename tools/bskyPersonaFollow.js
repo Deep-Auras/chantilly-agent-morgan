@@ -250,13 +250,14 @@ class BskyPersonaFollow extends BaseTool {
    */
   async loadPersonas(personaIds, toolContext) {
     // Search knowledge base for persona documents
-    const knowledgeBase = toolContext.knowledgeBase || require('../services/knowledgeBase');
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const knowledgeBase = toolContext.knowledgeBase || getKnowledgeBase();
 
     try {
       // Search for documents containing persona data
-      const results = await knowledgeBase.search('marketing persona customer', {
+      const results = await knowledgeBase.searchKnowledge('marketing persona customer', {
         maxResults: 20,
-        threshold: 0.5
+        minRelevance: 0.3
       });
 
       const personas = [];

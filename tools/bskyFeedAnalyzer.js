@@ -362,14 +362,15 @@ Respond ONLY with JSON:
    * Load personas from knowledge base
    */
   async loadPersonas(personaIds, toolContext) {
-    const knowledgeBase = toolContext.knowledgeBase || require('../services/knowledgeBase');
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const knowledgeBase = toolContext.knowledgeBase || getKnowledgeBase();
 
     try {
       this.log('info', 'Searching KB for personas', { query: 'marketing persona customer' });
 
-      const results = await knowledgeBase.search('marketing persona customer', {
+      const results = await knowledgeBase.searchKnowledge('marketing persona customer', {
         maxResults: 20,
-        threshold: 0.5
+        minRelevance: 0.3
       });
 
       this.log('info', 'KB search results', {

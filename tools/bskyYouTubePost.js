@@ -416,12 +416,13 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
       return [];
     }
 
-    const knowledgeBase = toolContext.knowledgeBase || require('../services/knowledgeBase');
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const knowledgeBase = toolContext.knowledgeBase || getKnowledgeBase();
 
     try {
-      const results = await knowledgeBase.search('marketing persona customer', {
+      const results = await knowledgeBase.searchKnowledge('marketing persona customer', {
         maxResults: 20,
-        threshold: 0.5
+        minRelevance: 0.3
       });
 
       const personas = [];
