@@ -247,7 +247,7 @@ Format response as JSON:
         };
       }
 
-      if (error.message.includes('quota')) {
+      if (error.message.includes('quota') || error.message.includes('RESOURCE_EXHAUSTED') || error.message.includes('429')) {
         return {
           success: false,
           error: 'Gemini API quota exceeded. Try again in 1 hour.'
