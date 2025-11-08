@@ -183,10 +183,10 @@ class BskyFeedAnalyzer extends BaseTool {
         continue;
       }
 
-      // Skip low-quality accounts
-      if (profile.followersCount < 10 || profile.postsCount < 5) {
-        continue;
-      }
+      // Quality filtering disabled - analyze all profiles regardless of followers/posts
+      // if (profile.followersCount < 10 || profile.postsCount < 5) {
+      //   continue;
+      // }
 
       // AI prospect scoring
       const prospectEval = await this.evaluateProspect({
