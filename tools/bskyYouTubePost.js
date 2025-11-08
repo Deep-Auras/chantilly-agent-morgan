@@ -18,6 +18,7 @@
 const BaseTool = require('../lib/baseTool');
 const { getBskyService } = require('../services/bskyService');
 const { getGeminiService } = require('../services/gemini');
+const { getVertexAIClient, extractGeminiText } = require('../config/gemini');
 
 class BskyYouTubePost extends BaseTool {
   constructor(context) {
@@ -189,7 +190,8 @@ class BskyYouTubePost extends BaseTool {
   }
 
   /**
-   * Analyze YouTube video with Gemini 2.5 Pro
+   * Analyze YouTube video with Gemini 2.5 Pro via Vertex AI
+   * CRITICAL: Requires Vertex AI client for YouTube URL support
    */
   async analyzeVideo(youtubeUrl, gemini) {
     const analysisPrompt = `Analyze this YouTube video and provide:
@@ -212,31 +214,31 @@ Format response as JSON:
 }`;
 
     try {
-      // Use Gemini 2.5 Pro with video support
-      const response = await gemini.generateContent({
+      // CRITICAL: Use Vertex AI client (NOT regular Gemini client) for YouTube URL support
+      const vertexAI = getVertexAIClient();
+
+      const response = await vertexAI.models.generateContent({
+        model: 'gemini-2.0-flash-exp',
         contents: [
           {
-            parts: [
-              {
-                fileData: {
-                  fileUri: youtubeUrl,
-                  mimeType: 'video/*'
-                }
-              },
-              {
-                text: analysisPrompt
-              }
-            ]
-          }
+            fileData: {
+              fileUri: youtubeUrl,
+              mimeType: 'video/mp4'  // Required for Vertex AI (per official docs)
+            }
+          },
+          analysisPrompt
         ]
       });
 
-      if (!response || !response.text) {
+      // Use centralized response extraction
+      const responseText = extractGeminiText(response);
+
+      if (!responseText) {
         throw new Error('Empty response from Gemini');
       }
 
       // Extract JSON from response
-      const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON found in response');
       }

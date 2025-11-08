@@ -15,27 +15,31 @@
  *   node scripts/testGeminiVideoSupport.js
  */
 
-const { getGeminiService } = require('../services/gemini');
+const { getVertexAIClient, extractGeminiText } = require('../config/gemini');
 
-// Test YouTube video (short, public, educational)
-// Using Google's official demo video from Gemini docs
-const TEST_VIDEO_URL = 'https://www.youtube.com/watch?v=vfJN6VYLZh8';
+// Test videos - both owned and public
+const TEST_VIDEOS = [
+  {
+    name: 'Deep Auras Owned Video',
+    url: 'https://youtu.be/Icm43LeJJXw',
+    type: 'owned'
+  },
+  {
+    name: 'Public Video (Rick Astley)',
+    url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    type: 'public'
+  }
+];
 
-async function testGeminiVideoSupport() {
-  console.log('🧪 Testing Gemini 2.5 Pro Video Analysis\n');
+async function testSingleVideo(client, videoInfo, index, total) {
+  console.log(`\n${'='.repeat(80)}`);
+  console.log(`📹 Test ${index + 1}/${total}: ${videoInfo.name} (${videoInfo.type})`);
+  console.log(`   URL: ${videoInfo.url}`);
+  console.log('='.repeat(80));
 
   try {
-    // Check API key
-    if (!process.env.GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY environment variable not set');
-    }
-
-    console.log('1️⃣ Initializing Gemini service...');
-    const gemini = getGeminiService();
-    console.log('   ✅ Gemini service initialized\n');
-
-    console.log('2️⃣ Testing YouTube video analysis...');
-    console.log(`   Video: ${TEST_VIDEO_URL}\n`);
+    console.log('\n   Sending video analysis request to Gemini...');
+    const startTime = Date.now();
 
     const prompt = `Analyze this video and answer:
 1. What is the main topic? (1 sentence)
@@ -49,122 +53,143 @@ Respond in JSON format:
   "tone": "tone"
 }`;
 
-    console.log('   📹 Sending video analysis request to Gemini...');
-    const startTime = Date.now();
-
-    const response = await gemini.generateContent({
+    // Official Google Cloud format for YouTube URLs with Vertex AI
+    const response = await client.models.generateContent({
+      model: 'gemini-2.0-flash-exp',
       contents: [
         {
-          parts: [
-            {
-              fileData: {
-                fileUri: TEST_VIDEO_URL,
-                mimeType: 'video/*'
-              }
-            },
-            {
-              text: prompt
-            }
-          ]
-        }
+          fileData: {
+            fileUri: videoInfo.url,
+            mimeType: 'video/mp4'  // Required for Vertex AI (per official docs)
+          }
+        },
+        prompt
       ]
     });
 
     const duration = ((Date.now() - startTime) / 1000).toFixed(2);
 
-    if (!response || !response.text) {
+    // Extract text from Gemini response
+    const responseText = extractGeminiText(response);
+
+    if (!responseText) {
       throw new Error('Empty response from Gemini');
     }
 
-    console.log(`   ✅ Video analysis completed in ${duration}s\n`);
+    console.log(`   ✅ Video analysis completed in ${duration}s`);
 
     // Parse response
-    console.log('3️⃣ Parsing AI response...');
-    const jsonMatch = response.text.match(/\{[\s\S]*\}/);
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
 
     if (!jsonMatch) {
       console.log('   ⚠️  No JSON found in response');
-      console.log('   Raw response:', response.text);
+      console.log('   Raw response:', responseText);
       throw new Error('Response not in expected JSON format');
     }
 
     const analysis = JSON.parse(jsonMatch[0]);
-    console.log('   ✅ Response parsed successfully\n');
 
     // Display results
-    console.log('📊 **Analysis Results:**\n');
-    console.log(`   Topic: ${analysis.topic || 'N/A'}`);
-    console.log(`   Visible Objects: ${analysis.visibleObjects ? analysis.visibleObjects.join(', ') : 'N/A'}`);
-    console.log(`   Emotional Tone: ${analysis.tone || 'N/A'}`);
-    console.log('');
+    console.log('\n   📊 Analysis Results:');
+    console.log(`      Topic: ${analysis.topic || 'N/A'}`);
+    console.log(`      Objects: ${analysis.visibleObjects ? analysis.visibleObjects.join(', ') : 'N/A'}`);
+    console.log(`      Tone: ${analysis.tone || 'N/A'}`);
 
     // Validation
-    console.log('4️⃣ Validating results...');
-
     const validations = [
       {
         test: 'Topic extracted',
-        passed: !!analysis.topic && analysis.topic.length > 10,
-        detail: analysis.topic ? `"${analysis.topic}"` : 'No topic'
+        passed: !!analysis.topic && analysis.topic.length > 10
       },
       {
         test: 'Objects identified',
-        passed: Array.isArray(analysis.visibleObjects) && analysis.visibleObjects.length >= 3,
-        detail: analysis.visibleObjects ? `${analysis.visibleObjects.length} objects` : 'No objects'
+        passed: Array.isArray(analysis.visibleObjects) && analysis.visibleObjects.length >= 3
       },
       {
         test: 'Tone detected',
-        passed: !!analysis.tone && analysis.tone.length > 0,
-        detail: analysis.tone || 'No tone'
+        passed: !!analysis.tone && analysis.tone.length > 0
       },
       {
         test: 'Response time acceptable',
-        passed: duration < 60,
-        detail: `${duration}s (target: <60s)`
+        passed: duration < 60
       }
     ];
 
-    let allPassed = true;
-
-    for (const validation of validations) {
-      const status = validation.passed ? '✅' : '❌';
-      console.log(`   ${status} ${validation.test}: ${validation.detail}`);
-
-      if (!validation.passed) {
-        allPassed = false;
-      }
-    }
-
-    console.log('');
+    const allPassed = validations.every(v => v.passed);
 
     if (allPassed) {
-      console.log('✅ **All tests passed!**\n');
-      console.log('💡 Gemini 2.5 Pro video analysis is working correctly.');
-      console.log('   You can now use BskyYouTubePost tool to generate posts from videos.\n');
+      console.log(`\n   ✅ ${videoInfo.name} test passed!`);
+      return { success: true, duration, videoInfo };
+    } else {
+      const failures = validations.filter(v => !v.passed).map(v => v.test);
+      console.log(`\n   ❌ ${videoInfo.name} test failed: ${failures.join(', ')}`);
+      return { success: false, duration, videoInfo, failures };
+    }
+  } catch (error) {
+    console.error(`\n   ❌ ${videoInfo.name} test failed:`, error.message);
+    return { success: false, error: error.message, videoInfo };
+  }
+}
+
+async function testGeminiVideoSupport() {
+  console.log('🧪 Testing Gemini 2.5 Pro Video Analysis\n');
+
+  try {
+    console.log('1️⃣ Initializing Vertex AI client (required for YouTube URLs)...');
+    const client = getVertexAIClient();
+    console.log('   ✅ Vertex AI client initialized');
+
+    console.log(`\n2️⃣ Testing ${TEST_VIDEOS.length} videos (owned + public)...`);
+
+    const results = [];
+    for (let i = 0; i < TEST_VIDEOS.length; i++) {
+      const result = await testSingleVideo(client, TEST_VIDEOS[i], i, TEST_VIDEOS.length);
+      results.push(result);
+    }
+
+    // Summary
+    console.log('\n' + '='.repeat(80));
+    console.log('📊 Test Summary');
+    console.log('='.repeat(80));
+
+    const passed = results.filter(r => r.success).length;
+    const failed = results.filter(r => !r.success).length;
+
+    results.forEach((result, i) => {
+      const status = result.success ? '✅' : '❌';
+      console.log(`${status} ${result.videoInfo.name} (${result.videoInfo.type})`);
+      if (result.duration) {
+        console.log(`   Duration: ${result.duration}s`);
+      }
+      if (result.failures) {
+        console.log(`   Failed: ${result.failures.join(', ')}`);
+      }
+      if (result.error) {
+        console.log(`   Error: ${result.error}`);
+      }
+    });
+
+    console.log('\n' + '='.repeat(80));
+    console.log(`Results: ${passed}/${TEST_VIDEOS.length} passed, ${failed}/${TEST_VIDEOS.length} failed`);
+    console.log('='.repeat(80));
+
+    if (passed === TEST_VIDEOS.length) {
+      console.log('\n✅ **All tests passed!**');
+      console.log('\n💡 Gemini Vertex AI video analysis is working correctly.');
+      console.log('   - Both owned and public YouTube videos work');
+      console.log('   - BskyYouTubePost tool can analyze any public YouTube video\n');
       process.exit(0);
     } else {
-      console.log('⚠️  **Some tests failed**\n');
-      console.log('💡 Gemini video analysis may have issues. Check:');
-      console.log('   - GEMINI_API_KEY is valid');
-      console.log('   - Using Gemini 2.5 Pro model (not 1.5)');
-      console.log('   - Video URL is accessible');
-      console.log('   - API quota not exceeded\n');
+      console.log('\n⚠️  **Some tests failed**');
+      console.log('\n💡 Check:');
+      console.log('   - Service account credentials are valid');
+      console.log('   - GOOGLE_CLOUD_PROJECT is set correctly');
+      console.log('   - Vertex AI API is enabled');
+      console.log('   - Video URLs are accessible\n');
       process.exit(1);
     }
   } catch (error) {
-    console.error('\n❌ Test failed:', error.message);
-
-    // Provide helpful error guidance
-    if (error.message.includes('API key')) {
-      console.error('\n💡 Set GEMINI_API_KEY environment variable');
-    } else if (error.message.includes('quota')) {
-      console.error('\n💡 Gemini API quota exceeded. Try again later.');
-    } else if (error.message.includes('model')) {
-      console.error('\n💡 Ensure using Gemini 2.5 Pro model with video support');
-    } else if (error.message.includes('video')) {
-      console.error('\n💡 Video URL may be invalid or video unavailable');
-    }
-
+    console.error('\n❌ Test suite failed:', error.message);
     console.error('\nStack trace:', error.stack);
     process.exit(1);
   }
