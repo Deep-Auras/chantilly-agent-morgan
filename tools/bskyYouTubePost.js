@@ -53,7 +53,7 @@ class BskyYouTubePost extends BaseTool {
         },
         postImmediately: {
           type: 'boolean',
-          description: 'If true, post immediately. If false, return draft for review (default: false)'
+          description: 'If true, post immediately to Bluesky. If false, return draft for review (default: true)'
         }
       },
       required: ['youtubeUrl']
@@ -73,7 +73,7 @@ class BskyYouTubePost extends BaseTool {
       maxLength = 280,
       includeFact = true,
       tone = 'engaging',
-      postImmediately = false
+      postImmediately = true // Changed default to true - when user calls this tool, they want to post
     } = args;
 
     try {
