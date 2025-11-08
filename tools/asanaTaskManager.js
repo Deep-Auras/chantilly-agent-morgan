@@ -189,7 +189,7 @@ class AsanaTaskManager extends BaseTool {
     let output = `📋 **Found ${tasks.length} tasks:**\n\n`;
 
     tasks.forEach(task => {
-      output += `• ${task.name} (${task.gid})\n`;
+      output += `- ${task.name} (${task.gid})\n`;
     });
 
     return output;

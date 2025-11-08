@@ -1385,10 +1385,10 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
 
     suggestions.forEach(tool => {
       // Use userDescription if available, otherwise clean up description
-      const cleanDescription = tool.userDescription || 
+      const cleanDescription = tool.userDescription ||
         tool.description.split('EXAMPLES:')[0].trim() ||
         tool.description.split('.')[0];
-      suggestionText += `• **${tool.name}**: ${cleanDescription}\n`;
+      suggestionText += `- **${tool.name}**: ${cleanDescription}\n`;
     });
 
     if (personality?.traits?.interaction?.engagement === 'engaging') {

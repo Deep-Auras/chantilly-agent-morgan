@@ -22,7 +22,7 @@ class BskyPersonaFollow extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'BskyPersonaFollow';
-    this.description = 'Discover and follow Bluesky profiles matching marketing personas when user EXPLICITLY requests "find Bluesky profiles matching our personas" or "follow people on Bluesky who match our target audience" or "search for bsky profiles matching personas". This tool searches for profiles based on persona characteristics (industry, interests, job titles) defined in knowledge base documents, evaluates match quality using AI, and automatically follows high-match profiles. Use ONLY when user wants to grow Bluesky following based on persona targeting. DO NOT use for general profile searches, manual follows, or conversational questions about personas.';
+    this.description = 'Discover and follow Bluesky profiles matching marketing personas when user EXPLICITLY requests to find or follow people on Bluesky. Use action="follow" when user says "follow people on Bluesky matching personas" or "find and follow" (actually follows profiles). Use action="search" ONLY when user explicitly says "dry run" or "preview matches without following" (simulation only, no actual follows). This tool searches for profiles based on persona characteristics, evaluates match quality using AI, and can automatically follow high-match profiles. Use ONLY when user wants to grow Bluesky following based on persona targeting. DO NOT use for general profile searches, manual follows, or conversational questions about personas.';
     this.priority = 60;
     this.timeout = 15 * 60 * 1000; // 15 minutes (AI scoring can take time)
 
@@ -547,69 +547,6 @@ IMPORTANT: Return exactly ${profiles.length} results in the same order as the in
     }
   }
 
-  /**
-   * Score profile match against persona using AI (DEPRECATED - use batchScoreProfiles instead)
-   */
-  async scoreProfileMatch(profile, persona, gemini) {
-    const matchPrompt = `Evaluate if this Bluesky profile matches our marketing persona.
-
-**Persona: ${persona.name}**
-- Industry: ${persona.industry || 'Not specified'}
-- Job Titles: ${persona.jobTitles ? persona.jobTitles.join(', ') : 'Not specified'}
-- Interests: ${persona.interests ? persona.interests.join(', ') : 'Not specified'}
-- Pain Points: ${persona.painPoints ? persona.painPoints.join(', ') : 'Not specified'}
-
-**Profile:**
-- Handle: ${profile.handle}
-- Display Name: ${profile.displayName || 'Not set'}
-- Bio: ${profile.description || 'No bio'}
-
-Score 0-100 (0=no match, 100=perfect match). Consider:
-1. Bio mentions persona industry, job titles, or interests (HIGH PRIORITY - must have substantive bio)
-2. Display name or handle suggests relevant professional identity
-3. Bio shows genuine professional persona (not spam/bot - look for complete sentences, specific expertise)
-4. **CRITICAL: If bio is empty, generic, or spam-like, score must be 0-20 maximum**
-
-Examples of LOW scores:
-- Empty bio or "No bio" → 0
-- Generic bios like "crypto enthusiast" → 10
-- Promotional/spam bios → 0
-- Single emoji or keyword → 5
-
-Examples of HIGH scores:
-- Detailed professional bio with job title + industry → 70-90
-- Bio mentions specific expertise and pain points → 80-100
-- Clear professional identity matching persona → 90-100
-
-Respond ONLY with JSON:
-{
-  "score": <number 0-100>,
-  "reason": "<1-2 sentence explanation of score>"
-}`;
-
-    try {
-      const response = await gemini.generateResponse(matchPrompt, {
-        temperature: 0.3, // Low temperature for consistent scoring
-        maxTokens: 150
-      });
-
-      // Parse JSON response
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const result = JSON.parse(jsonMatch[0]);
-        return {
-          score: Math.max(0, Math.min(100, result.score)),
-          reason: result.reason || 'No reason provided'
-        };
-      }
-
-      this.log('warn', 'AI response not in expected JSON format', { response });
-      return { score: 0, reason: 'Invalid AI response format' };
-    } catch (error) {
-      this.log('error', 'AI scoring failed', { error: error.message });
-      return { score: 0, reason: `Scoring error: ${error.message}` };
-    }
-  }
 
   /**
    * Check if profile already followed
@@ -629,7 +566,7 @@ Respond ONLY with JSON:
   }
 
   /**
-   * Format follow report for user
+   * Format follow report for user (platform-agnostic)
    */
   formatFollowReport({ personas, matches, followResults, dryRun, matchThreshold }) {
     let report = `📊 **Bluesky Persona-Based Profile ${dryRun ? 'Search' : 'Follow'} Report**\n`;
@@ -699,7 +636,7 @@ Respond ONLY with JSON:
   }
 
   /**
-   * Generate report of followed profiles
+   * Generate report of followed profiles (Google Chat Markdown format)
    */
   async generateReport() {
     try {

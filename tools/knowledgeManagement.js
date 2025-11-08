@@ -216,8 +216,8 @@ class KnowledgeManagementTool extends BaseTool {
     // Clean and structure the content
     let formatted = text.trim();
 
-    // Add markdown formatting for lists
-    formatted = formatted.replace(/^[-*]\s+/gm, '• ');
+    // Keep markdown bullets as-is (don't convert to bullet characters)
+    // Platform services will handle conversion if needed
     formatted = formatted.replace(/^\d+\.\s+/gm, (match) => match);
 
     // Add headers for sections

@@ -1283,8 +1283,8 @@ Return ONLY the JSON, no other text.`;
       const genAI = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
 
       // Build detailed feedback for Gemini
-      const errorSummary = detailedErrors.map(error => 
-        `• ${error.type}: ${error.message}\n  Fix: ${error.fix}`
+      const errorSummary = detailedErrors.map(error =>
+        `- ${error.type}: ${error.message}\n  Fix: ${error.fix}`
       ).join('\n');
 
       const repairPrompt = `You are a code repair specialist. A JavaScript execution script for a complex task has validation errors that need to be fixed.

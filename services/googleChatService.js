@@ -373,6 +373,20 @@ class GoogleChatService {
   }
 
   /**
+   * Format text for Google Chat (Markdown)
+   * Converts platform-agnostic formatting to Google Chat format
+   */
+  formatForGoogleChat(text) {
+    if (!text) return '';
+
+    return text
+      // Convert **bold** to *bold*
+      .replace(/\*\*([^*]+)\*\*/g, '*$1*')
+      // Convert bullet points: - to •
+      .replace(/^(\s*)- /gm, '$1• ');
+  }
+
+  /**
    * Create rich card response (Google Workspace Add-on format)
    */
   createCardResponse(content) {
@@ -381,7 +395,7 @@ class GoogleChatService {
         chatDataAction: {
           createMessageAction: {
             message: {
-              text: content
+              text: this.formatForGoogleChat(content)
             }
           }
         }
@@ -399,7 +413,7 @@ class GoogleChatService {
       const message = {
         parent: spaceName,
         requestBody: {
-          text: text
+          text: this.formatForGoogleChat(text)
         }
       };
 

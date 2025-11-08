@@ -855,7 +855,7 @@ Focus on extracting specific place types, neighborhood names, and search terms t
           const photoUrls = this.extractPhotoUrls(place.photos);
           response += `📸 **Photos** (${place.photos.length} available):\n`;
           photoUrls.forEach((photoUrl, index) => {
-            response += `• Photo ${index + 1}: ${photoUrl}\n`;
+            response += `- Photo ${index + 1}: ${photoUrl}\n`;
           });
           response += '\n'; // Add extra spacing after photos
         }
@@ -965,7 +965,7 @@ Focus on extracting specific place types, neighborhood names, and search terms t
 
       let summary = '';
       reviews.forEach((review, index) => {
-        summary += `• **${review.placeName}** (${review.rating}⭐): ${review.reviewText}\n`;
+        summary += `- **${review.placeName}** (${review.rating}⭐): ${review.reviewText}\n`;
         if (review.relativeTime) {
           summary += `  *${review.relativeTime}*\n`;
         }
@@ -1015,19 +1015,19 @@ Focus on extracting specific place types, neighborhood names, and search terms t
         response += `📍 **${place.displayName?.text || `Location ${index + 1}`}**\n`;
         
         if (place.rating && place.userRatingCount) {
-          response += `⭐ ${place.rating}/5 (${place.userRatingCount.toLocaleString()}) • `;
+          response += `⭐ ${place.rating}/5 (${place.userRatingCount.toLocaleString()}) - `;
         }
-        
+
         response += `📸 ${photoUrls.length} photo${photoUrls.length > 1 ? 's' : ''}\n`;
-        
+
         // Show up to 6 photos per location to keep response manageable
         const displayPhotos = photoUrls.slice(0, 6);
         displayPhotos.forEach((photoUrl, photoIndex) => {
-          response += `• [Photo ${photoIndex + 1}](${photoUrl})\n`;
+          response += `- [Photo ${photoIndex + 1}](${photoUrl})\n`;
         });
-        
+
         if (photoUrls.length > 6) {
-          response += `• *${photoUrls.length - 6} more photos available*\n`;
+          response += `- *${photoUrls.length - 6} more photos available*\n`;
         }
         
         response += '\n';
@@ -1111,13 +1111,13 @@ Focus on extracting specific place types, neighborhood names, and search terms t
       topRatedPlaces.forEach(place => {
         if (place.displayName?.text && place.types) {
           const primaryType = place.types[0].replace(/_/g, ' ');
-          recommendations.push(`• **${place.displayName.text}** - Highly rated ${primaryType} (${place.rating}⭐)`);
+          recommendations.push(`- **${place.displayName.text}** - Highly rated ${primaryType} (${place.rating}⭐)`);
         }
       });
 
       // Add KML-based recommendations if available
       if (kmlData && kmlData.relevantTitles.length > 0) {
-        recommendations.push(`• Check local knowledge base for detailed information about ${kmlData.relevantTitles[0]}`);
+        recommendations.push(`- Check local knowledge base for detailed information about ${kmlData.relevantTitles[0]}`);
       }
 
       return recommendations.length > 0 ? recommendations.join('\n') : null;
