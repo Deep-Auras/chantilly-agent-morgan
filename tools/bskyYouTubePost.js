@@ -23,7 +23,7 @@ class BskyYouTubePost extends BaseTool {
   constructor(context) {
     super(context);
     this.name = 'BskyYouTubePost';
-    this.description = 'Generate Bluesky social media posts from YouTube videos when user EXPLICITLY requests "create a Bluesky post about this YouTube video" or "watch this video and post to Bluesky" or "summarize YouTube video for Bluesky" or "turn this YouTube video into a bsky post". This tool uses Gemini 2.5 Pro to analyze video content (visual + audio), extracts key insights, adds relevant extra facts, and generates engaging posts optimized for target marketing personas. Supports direct YouTube URLs (youtube.com, youtu.be). Use ONLY when user wants to create Bluesky content based on video analysis. DO NOT use for general video summaries, YouTube searches, or conversational questions about videos.';
+    this.description = 'POST to Bluesky from YouTube videos when user EXPLICITLY requests "create a Bluesky post" or "post this to Bluesky" or "share this YouTube video on Bluesky". This tool IMMEDIATELY POSTS to Bluesky (does NOT generate drafts for review). Analyzes video with Gemini 2.5 Pro (visual + audio), extracts key insights, adds relevant facts, and publishes engaging posts. Supports youtube.com and youtu.be URLs. Use ONLY when user wants to PUBLISH content to Bluesky. DO NOT use for general video summaries, searches, or conversational questions.';
     this.priority = 50;
     this.timeout = 12 * 60 * 1000; // 12 minutes (video analysis can be slow)
 
@@ -50,10 +50,6 @@ class BskyYouTubePost extends BaseTool {
           type: 'string',
           enum: ['professional', 'casual', 'engaging'],
           description: 'Post tone (default: engaging)'
-        },
-        postImmediately: {
-          type: 'boolean',
-          description: 'If true, post immediately to Bluesky. If false, return draft for review (default: true)'
         }
       },
       required: ['youtubeUrl']
@@ -72,8 +68,7 @@ class BskyYouTubePost extends BaseTool {
       personaIds = null,
       maxLength = 280,
       includeFact = true,
-      tone = 'engaging',
-      postImmediately = true // Changed default to true - when user calls this tool, they want to post
+      tone = 'engaging'
     } = args;
 
     try {
@@ -133,23 +128,14 @@ class BskyYouTubePost extends BaseTool {
 
       this.log('info', 'Post generated', { length: finalPost.length });
 
-      // Step 5: Post or return draft
-      if (postImmediately) {
-        return await this.postToBsky({
-          text: finalPost,
-          videoId,
-          personaIds,
-          videoAnalysis,
-          bsky
-        });
-      } else {
-        return this.formatDraftPreview({
-          text: finalPost,
-          videoAnalysis,
-          personas,
-          youtubeUrl
-        });
-      }
+      // Step 5: Post to Bluesky (ALWAYS - no draft mode)
+      return await this.postToBsky({
+        text: finalPost,
+        videoId,
+        personaIds,
+        videoAnalysis,
+        bsky
+      });
     } catch (error) {
       this.log('error', 'BskyYouTubePost execution failed', { error: error.message });
       return `❌ Error: ${error.message}`;
