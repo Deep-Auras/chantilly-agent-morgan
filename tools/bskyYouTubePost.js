@@ -201,7 +201,7 @@ Format response as JSON:
       const vertexAI = getVertexAIClient();
 
       const response = await vertexAI.models.generateContent({
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-pro',
         contents: [
           {
             fileData: {
@@ -317,7 +317,7 @@ Format: Plain text only, no markdown. Natural line breaks for readability.`;
       const vertexAI = getVertexAIClient();
 
       const response = await vertexAI.models.generateContent({
-        model: 'gemini-2.0-flash-exp',
+        model: 'gemini-2.5-pro',
         contents: [{ role: 'user', parts: [{ text: postPrompt }] }],
         generationConfig: {
           temperature: 0.7, // Higher creativity for engaging content
