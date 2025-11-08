@@ -472,27 +472,11 @@ class GeminiService {
       });
 
       // Configure request for Gemini 2.5 Pro with tools (2025 format)
-      // CRITICAL: Detect YouTube URLs and restrict to BskyYouTubePost tool only
-      const hasYouTubeUrl = /(?:youtube\.com\/watch\?v=|youtu\.be\/)[\w-]+/.test(prompt);
-      const hasBskyYouTubeTool = toolDeclarations.some(t => t.name === 'BskyYouTubePost');
-
-      let toolCallingConfig = {
+      // Let Gemini choose the appropriate tool based on semantic descriptions
+      const toolCallingConfig = {
         mode: 'ANY'
-        // Do NOT set allowedFunctionNames in default case - let Gemini choose any tool
+        // Do NOT set allowedFunctionNames - let Gemini choose based on tool descriptions
       };
-
-      if (hasYouTubeUrl && hasBskyYouTubeTool) {
-        // Restrict to ONLY BskyYouTubePost when YouTube URL detected
-        toolCallingConfig = {
-          mode: 'ANY',
-          allowedFunctionNames: ['BskyYouTubePost'] // ONLY allow this one tool
-        };
-        logger.info('YouTube URL detected - restricting to BskyYouTubePost tool only', {
-          promptPreview: prompt.substring(0, 100),
-          hasYouTubeUrl,
-          hasBskyYouTubeTool
-        });
-      }
 
       const requestConfig = {
         model: config.GEMINI_MODEL,
