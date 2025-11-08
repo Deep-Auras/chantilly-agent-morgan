@@ -365,17 +365,34 @@ Respond ONLY with JSON:
     const knowledgeBase = toolContext.knowledgeBase || require('../services/knowledgeBase');
 
     try {
+      this.log('info', 'Searching KB for personas', { query: 'marketing persona customer' });
+
       const results = await knowledgeBase.search('marketing persona customer', {
         maxResults: 20,
         threshold: 0.5
+      });
+
+      this.log('info', 'KB search results', {
+        resultsCount: results.length,
+        titles: results.map(r => r.title)
       });
 
       const personas = [];
 
       for (const doc of results) {
         const extracted = this.extractPersonasFromDocument(doc.content);
+        this.log('info', 'Personas extracted from doc', {
+          title: doc.title,
+          extractedCount: extracted.length,
+          personaIds: extracted.map(p => p.personaId)
+        });
         personas.push(...extracted);
       }
+
+      this.log('info', 'Total personas loaded', {
+        totalCount: personas.length,
+        personaIds: personas.map(p => p.personaId)
+      });
 
       // Filter by personaIds if provided
       if (personaIds && personaIds.length > 0) {
@@ -384,7 +401,10 @@ Respond ONLY with JSON:
 
       return personas;
     } catch (error) {
-      this.log('error', 'Failed to load personas', { error: error.message });
+      this.log('error', 'Failed to load personas', {
+        error: error.message,
+        stack: error.stack
+      });
       return [];
     }
   }
