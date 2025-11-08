@@ -227,12 +227,28 @@ class GoogleChatService {
       const conversationRef = this.db.collection('conversations').doc(spaceId);
       const conversationDoc = await conversationRef.get();
 
+      // Sanitize response to only include serializable data
+      let sanitizedResponse = response;
+      if (typeof response === 'object') {
+        // Extract only the text content if response is an object
+        sanitizedResponse = response?.text || response?.reply || JSON.stringify(response);
+      } else if (typeof response !== 'string') {
+        // Convert non-string primitives to string
+        sanitizedResponse = String(response);
+      }
+
+      // Truncate very long responses (Firestore has 1MB limit per document)
+      const MAX_RESPONSE_LENGTH = 10000;
+      if (sanitizedResponse.length > MAX_RESPONSE_LENGTH) {
+        sanitizedResponse = sanitizedResponse.substring(0, MAX_RESPONSE_LENGTH) + '... [truncated]';
+      }
+
       const messageEntry = {
         timestamp: this.FieldValue.serverTimestamp(),
         userId: user.name,
         userName: user.displayName || user.name,
         text: messageText,
-        response: response,
+        response: sanitizedResponse,
         platform: 'google-chat'
       };
 
@@ -258,7 +274,13 @@ class GoogleChatService {
 
       logger.info('Cached Google Chat message', { spaceId, userId: user.name });
     } catch (error) {
-      logger.error('Failed to cache message', { error: error.message });
+      logger.error('Failed to cache message', {
+        error: error.message,
+        stack: error.stack,
+        spaceId,
+        userId: user.name,
+        responseType: typeof response
+      });
       // Don't throw - caching failure shouldn't break message handling
     }
   }
