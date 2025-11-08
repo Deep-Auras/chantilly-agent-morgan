@@ -562,6 +562,140 @@ class BskyService {
   }
 
   /**
+   * Get suggested follows for an actor (using Bluesky's recommendation algorithm)
+   *
+   * @param {string} actor - Handle or DID (defaults to authenticated user)
+   * @returns {Promise<Array>} Array of suggested profile objects
+   */
+  async getSuggestedFollows(actor = null) {
+    await this.ensureInitialized();
+    await this.rateLimiter.checkLimit();
+
+    try {
+      // Use authenticated user if no actor specified
+      const targetActor = actor || this.session.did;
+
+      logger.info('Fetching Bluesky suggested follows', { actor: targetActor });
+
+      const response = await this.agent.app.bsky.graph.getSuggestedFollowsByActor({
+        actor: targetActor
+      });
+
+      if (!response.success) {
+        throw new Error('Suggested follows fetch failed');
+      }
+
+      const profiles = response.data.suggestions.map(actor => ({
+        did: actor.did,
+        handle: actor.handle,
+        displayName: actor.displayName,
+        description: actor.description || '',
+        avatarUrl: actor.avatar,
+        followersCount: actor.followersCount || 0,
+        followingCount: actor.followsCount || 0,
+        postsCount: actor.postsCount || 0
+      }));
+
+      logger.info('Suggested follows fetched', {
+        actor: targetActor,
+        suggestionsCount: profiles.length
+      });
+
+      return profiles;
+    } catch (error) {
+      logger.error('Failed to fetch suggested follows', {
+        actor: actor || 'self',
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Get who an actor follows
+   *
+   * @param {string} actor - Handle or DID
+   * @param {number} limit - Max results (default: 50)
+   * @returns {Promise<Array>} Array of profile objects
+   */
+  async getFollows(actor, limit = 50) {
+    await this.ensureInitialized();
+    await this.rateLimiter.checkLimit();
+
+    try {
+      logger.info('Fetching who actor follows', { actor, limit });
+
+      const response = await this.agent.app.bsky.graph.getFollows({
+        actor,
+        limit: Math.min(limit, 100)
+      });
+
+      if (!response.success) {
+        throw new Error('Get follows failed');
+      }
+
+      const profiles = response.data.follows.map(actor => ({
+        did: actor.did,
+        handle: actor.handle,
+        displayName: actor.displayName,
+        description: actor.description || '',
+        avatarUrl: actor.avatar,
+        followersCount: actor.followersCount || 0,
+        followingCount: actor.followsCount || 0,
+        postsCount: actor.postsCount || 0
+      }));
+
+      logger.info('Follows fetched', { actor, count: profiles.length });
+      return profiles;
+    } catch (error) {
+      logger.error('Failed to fetch follows', { actor, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get who follows an actor
+   *
+   * @param {string} actor - Handle or DID
+   * @param {number} limit - Max results (default: 50)
+   * @returns {Promise<Array>} Array of profile objects
+   */
+  async getFollowers(actor, limit = 50) {
+    await this.ensureInitialized();
+    await this.rateLimiter.checkLimit();
+
+    try {
+      logger.info('Fetching actor followers', { actor, limit });
+
+      const response = await this.agent.app.bsky.graph.getFollowers({
+        actor,
+        limit: Math.min(limit, 100)
+      });
+
+      if (!response.success) {
+        throw new Error('Get followers failed');
+      }
+
+      const profiles = response.data.followers.map(actor => ({
+        did: actor.did,
+        handle: actor.handle,
+        displayName: actor.displayName,
+        description: actor.description || '',
+        avatarUrl: actor.avatar,
+        followersCount: actor.followersCount || 0,
+        followingCount: actor.followsCount || 0,
+        postsCount: actor.postsCount || 0
+      }));
+
+      logger.info('Followers fetched', { actor, count: profiles.length });
+      return profiles;
+    } catch (error) {
+      logger.error('Failed to fetch followers', { actor, error: error.message });
+      throw error;
+    }
+  }
+
+  /**
    * Get profile by handle or DID
    *
    * @param {string} handleOrDid - Bluesky handle or DID

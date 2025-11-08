@@ -120,103 +120,99 @@ class BskyPersonaFollow extends BaseTool {
 
     this.log('info', 'Personas loaded', { count: personas.length });
 
-    // Search for profiles matching each persona
+    // Get suggested follows from Bluesky's algorithm (real, active accounts)
     const allMatches = [];
-    const searchQueries = [];
-
-    for (const persona of personas) {
-      // Generate search queries from persona
-      const queries = this.generateSearchQueries(persona);
-      searchQueries.push(...queries.map(q => ({ query: q, persona })));
-    }
-
-    this.log('info', 'Generated search queries', { count: searchQueries.length });
-
-    // Search profiles (limit to avoid quota exhaustion)
-    const maxSearches = Math.min(searchQueries.length, 10);
-    const maxProfilesPerSearch = 5; // Limit profiles scored per query
-    const maxCandidates = 20; // Stop after finding this many candidates
+    const maxCandidates = 30; // Evaluate up to 30 suggested profiles
     let profilesScanned = 0;
     let profilesSkippedLowFollowers = 0;
     let profilesSkippedAlreadyFollowed = 0;
     let profilesBelowThreshold = 0;
     const allScores = []; // Track all scores for debugging
 
-    for (let i = 0; i < maxSearches; i++) {
-      const { query, persona } = searchQueries[i];
+    this.log('info', 'Fetching Bluesky suggested follows');
 
-      try {
-        this.log('info', 'Searching profiles', { query, persona: persona.name });
+    try {
+      // Get Bluesky's suggested follows (returns ~50 profiles)
+      const suggestedProfiles = await bsky.getSuggestedFollows();
 
-        const profiles = await bsky.searchProfiles(query, 20);
+      this.log('info', 'Suggested follows fetched', { count: suggestedProfiles.length });
 
-        // Score each profile against persona (limit to first 5 per query)
-        let scoredInThisSearch = 0;
-        for (const profile of profiles) {
-          // Stop if we've scored enough profiles in this search
-          if (scoredInThisSearch >= maxProfilesPerSearch) {
-            break;
-          }
+      // Score each suggested profile against ALL personas
+      for (const profile of suggestedProfiles) {
+        // Stop if we've evaluated enough profiles
+        if (profilesScanned >= maxCandidates) {
+          this.log('info', 'Evaluated enough profiles, stopping', { profilesScanned });
+          break;
+        }
 
-          // Stop if we've found enough total candidates
-          if (allMatches.length >= maxCandidates) {
-            this.log('info', 'Found enough candidates, stopping search', { candidates: allMatches.length });
-            break;
-          }
+        profilesScanned++;
 
-          profilesScanned++;
+        // Filter out 0-follower accounts (likely spam/new accounts)
+        if (profile.followersCount < 1) {
+          profilesSkippedLowFollowers++;
+          continue;
+        }
 
-          // Filter out 0-follower accounts (likely spam/new accounts)
-          if (profile.followersCount < 1) {
-            profilesSkippedLowFollowers++;
-            continue;
-          }
+        // Skip if already followed
+        const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
+        if (alreadyFollowed) {
+          profilesSkippedAlreadyFollowed++;
+          continue;
+        }
 
-          // Skip if already followed
-          const alreadyFollowed = await this.isAlreadyFollowed(profile.did);
-          if (alreadyFollowed) {
-            profilesSkippedAlreadyFollowed++;
-            continue;
-          }
+        // AI match scoring against ALL personas (find best match)
+        let bestMatch = null;
+        let bestScore = 0;
 
-          // AI match scoring
+        for (const persona of personas) {
           const matchScore = await this.scoreProfileMatch(profile, persona, gemini);
-          scoredInThisSearch++;
 
-          // Log score for debugging
+          // Log individual persona score
           this.log('debug', 'Profile scored', {
             handle: profile.handle,
+            persona: persona.name,
             score: matchScore.score,
             threshold: matchThreshold,
-            reason: matchScore.reason,
-            persona: persona.name
-          });
-
-          allScores.push({
-            handle: profile.handle,
-            score: matchScore.score,
             reason: matchScore.reason
           });
 
-          if (matchScore.score >= matchThreshold) {
-            allMatches.push({
-              profile,
+          if (matchScore.score > bestScore) {
+            bestScore = matchScore.score;
+            bestMatch = {
               persona,
-              matchScore: matchScore.score,
-              matchReason: matchScore.reason
-            });
-          } else {
-            profilesBelowThreshold++;
+              score: matchScore.score,
+              reason: matchScore.reason
+            };
           }
         }
-      } catch (error) {
-        this.log('warn', 'Profile search failed', { query, error: error.message });
-      }
 
-      // Break outer loop if we found enough candidates
-      if (allMatches.length >= maxCandidates) {
-        break;
+        // Track score for reporting
+        allScores.push({
+          handle: profile.handle,
+          score: bestScore,
+          reason: bestMatch?.reason || 'No match'
+        });
+
+        // Add to matches if above threshold
+        if (bestScore >= matchThreshold) {
+          allMatches.push({
+            profile,
+            persona: bestMatch.persona,
+            matchScore: bestScore,
+            matchReason: bestMatch.reason
+          });
+
+          this.log('info', 'Profile matched', {
+            handle: profile.handle,
+            persona: bestMatch.persona.name,
+            score: bestScore
+          });
+        } else {
+          profilesBelowThreshold++;
+        }
       }
+    } catch (error) {
+      this.log('error', 'Failed to fetch suggested follows', { error: error.message });
     }
 
     // Log summary statistics
