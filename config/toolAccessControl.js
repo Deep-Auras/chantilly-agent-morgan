@@ -25,6 +25,11 @@ const TOOL_ACCESS_CONTROL = {
   // Asana tools (only if ENABLE_ASANA_INTEGRATION=true)
   AsanaTaskManager: ['user', 'admin'],
 
+  // Bluesky tools (social media content creation)
+  BskyYouTubePost: ['user', 'admin'],
+  BskyFeedAnalyzer: ['user', 'admin'],
+  BskyPersonaFollow: ['user', 'admin'],
+
   // General tools (always available)
   DrawioGenerator: ['user', 'admin'],
   GoogleMapsPlaces: ['user', 'admin'],
