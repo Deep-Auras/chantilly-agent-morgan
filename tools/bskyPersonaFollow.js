@@ -233,7 +233,7 @@ class BskyPersonaFollow extends BaseTool {
     const toFollow = allMatches.slice(0, maxFollows);
 
     if (toFollow.length === 0) {
-      return `📊 **Persona Profile Search Results**\n\nSearched ${maxSearches} queries across ${personas.length} personas.\n\n❌ No profiles found matching threshold of ${matchThreshold}/100.\n\nTry lowering matchThreshold or expanding persona definitions.`;
+      return `📊 **Persona Profile Search Results**\n\nEvaluated ${profilesScanned} Bluesky suggested profiles against ${personas.length} personas.\n\n❌ No profiles found matching threshold of ${matchThreshold}/100.\n\nStats: ${profilesSkippedLowFollowers} had <1 follower, ${profilesSkippedAlreadyFollowed} already followed, ${profilesBelowThreshold} scored below threshold.\n\nTry lowering matchThreshold or check persona definitions.`;
     }
 
     // Follow profiles (or dry-run)
