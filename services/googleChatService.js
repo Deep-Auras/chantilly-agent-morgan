@@ -540,6 +540,187 @@ class GoogleChatService {
       text: 'Card interaction received'
     };
   }
+
+  /**
+   * PHASE 15: Handle task feedback from user
+   * User provides natural language feedback about what to fix in a task
+   */
+  async handleTaskFeedback(event) {
+    const { message, space, user } = event;
+    const messageText = message.text;
+
+    try {
+      logger.info('Processing task feedback', {
+        userId: user.name,
+        spaceName: space.name,
+        textLength: messageText.length
+      });
+
+      // 1. Parse feedback to extract task reference and modifications
+      const feedback = await this.parseTaskFeedback(messageText);
+
+      if (!feedback.taskReference) {
+        return this.createCardResponse(
+          '❌ I couldn\'t identify which task you\'re referring to. ' +
+          'Please mention the task name or ID in your feedback.\n\n' +
+          'Example: "The Customer Report task needs a revenue breakdown step."'
+        );
+      }
+
+      // 2. Find the Asana task
+      const { getAsanaService } = require('./asanaService');
+      const asana = getAsanaService();
+
+      const task = await asana.findTaskByReference(feedback.taskReference);
+
+      if (!task) {
+        return this.createCardResponse(
+          `❌ I couldn't find a task matching "${feedback.taskReference}". ` +
+          'Please check the task name and try again.'
+        );
+      }
+
+      // 3. Apply feedback modifications to task
+      await asana.applyFeedbackToTask(task.gid, feedback.modifications);
+
+      // 4. Prepare task for retry (mark incomplete, move to Try Again section)
+      await asana.prepareTaskForRetry(task.gid, feedback);
+
+      // 5. Cache feedback in conversation history
+      await this.cacheFeedbackExchange(space.name, user, messageText, task, feedback);
+
+      // 6. Confirm to user
+      return this.createCardResponse(
+        `✅ **Task Updated: ${task.name}**\n\n` +
+        `**Changes Applied:**\n${this.formatModifications(feedback.modifications)}\n\n` +
+        `The task has been marked incomplete and moved to "Morgan - Try Again" for execution.\n\n` +
+        `View in Asana: https://app.asana.com/0/${task.gid}`
+      );
+    } catch (error) {
+      logger.error('Error handling task feedback', { error: error.message, stack: error.stack });
+      return this.createCardResponse(
+        `❌ Error processing feedback: ${error.message}\n\n` +
+        'Please try again or update the task directly in Asana.'
+      );
+    }
+  }
+
+  /**
+   * PHASE 15: Parse natural language task feedback using Gemini
+   */
+  async parseTaskFeedback(messageText) {
+    const gemini = getGeminiService();
+
+    const prompt = `Analyze this user feedback about a task and extract:
+1. Task reference (name or ID mentioned)
+2. List of modifications requested (what to add, change, or remove)
+
+User feedback: "${messageText}"
+
+Respond in JSON format:
+{
+  "taskReference": "exact task name or ID mentioned",
+  "modifications": [
+    {
+      "type": "add_step|modify_step|remove_step|update_description",
+      "description": "what to add/change/remove",
+      "details": "additional context if any"
+    }
+  ],
+  "summary": "brief summary of requested changes"
+}`;
+
+    try {
+      const response = await gemini.generateResponse(prompt, {
+        platform: 'google-chat',
+        responseFormat: 'json'
+      });
+
+      // Try to parse JSON response
+      let parsed;
+      try {
+        parsed = JSON.parse(response);
+      } catch (parseError) {
+        // If response is not JSON, try to extract JSON from text
+        const jsonMatch = response.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          parsed = JSON.parse(jsonMatch[0]);
+        } else {
+          throw new Error('Could not parse feedback response as JSON');
+        }
+      }
+
+      logger.info('Parsed task feedback', {
+        taskReference: parsed.taskReference,
+        modificationsCount: parsed.modifications?.length || 0
+      });
+
+      return parsed;
+    } catch (error) {
+      logger.error('Failed to parse task feedback', { error: error.message });
+      // Return empty structure on parse failure
+      return {
+        taskReference: null,
+        modifications: [],
+        summary: 'Failed to parse feedback'
+      };
+    }
+  }
+
+  /**
+   * PHASE 15: Format modifications for display
+   */
+  formatModifications(modifications) {
+    if (!modifications || modifications.length === 0) {
+      return '(No specific modifications detected)';
+    }
+
+    return modifications.map((mod, idx) => {
+      const icon = mod.type === 'add_step' ? '➕' :
+                   mod.type === 'modify_step' ? '✏️' :
+                   mod.type === 'remove_step' ? '➖' : '📝';
+
+      let line = `${icon} ${mod.description}`;
+      if (mod.details) {
+        line += `\n   ${mod.details}`;
+      }
+      return line;
+    }).join('\n');
+  }
+
+  /**
+   * PHASE 15: Cache feedback exchange in conversation history
+   */
+  async cacheFeedbackExchange(spaceId, user, messageText, task, feedback) {
+    try {
+      await this.db.collection('conversations').doc(spaceId).set({
+        messages: this.FieldValue.arrayUnion({
+          timestamp: new Date().toISOString(),
+          userId: user.name,
+          userName: user.displayName || user.name,
+          text: messageText,
+          response: `Task updated: ${task.name}`,
+          toolsUsed: ['AsanaTaskManager'],
+          metadata: {
+            type: 'task_feedback',
+            asanaTaskGid: task.gid,
+            asanaTaskName: task.name,
+            modificationsCount: feedback.modifications.length
+          }
+        }),
+        lastActivity: this.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      logger.info('Cached feedback exchange', {
+        spaceId,
+        taskGid: task.gid,
+        modificationsCount: feedback.modifications.length
+      });
+    } catch (error) {
+      logger.error('Failed to cache feedback exchange', { error: error.message });
+      // Don't throw - caching failure shouldn't break feedback handling
+    }
+  }
 }
 
 let instance = null;

@@ -426,7 +426,20 @@ process.on('SIGTERM', async () => {
       logger.error('TaskOrchestrator shutdown failed', { error: error.message });
     }
 
-    // 4. Cleanup 3CX services if initialized
+    // 4. Cleanup Asana service if initialized (polling intervals)
+    try {
+      const { getAsanaService } = require('./services/asanaService');
+      const asanaService = getAsanaService();
+      if (asanaService && asanaService.cleanup) {
+        await asanaService.cleanup();
+        logger.info('Asana service cleanup completed');
+      }
+    } catch (error) {
+      // Asana service might not be initialized, that's okay
+      logger.debug('Asana service cleanup skipped', { reason: error.message });
+    }
+
+    // 5. Cleanup 3CX services if initialized
     try {
       const { getThreeCXQueueManager } = require('./services/threecx-queue');
       const threeCXQueue = getThreeCXQueueManager();
