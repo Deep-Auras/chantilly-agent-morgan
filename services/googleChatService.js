@@ -221,36 +221,38 @@ class GoogleChatService {
   async handleMessage(event) {
     const { message, space, user } = event;
 
-    try {
-      // PHASE 16.3: REQUEST DEDUPLICATION
-      // Google Chat may retry webhooks if response is slow, causing duplicate processing.
-      // Use message.name as unique ID to track in-flight requests.
+    // PHASE 16.3: REQUEST DEDUPLICATION (CRITICAL - Must happen FIRST)
+    // Google Chat sends duplicate webhooks within 133ms, too fast for async Map checks.
+    // Use message.name (or generate stable ID) to detect duplicates.
 
-      const messageId = message.name || `${space.name}-${user.name}-${Date.now()}`;
+    const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
 
-      // Check if this message is already being processed
-      if (this.processingMessages.has(messageId)) {
-        logger.warn('Duplicate webhook detected, ignoring', {
-          messageId,
-          spaceName: space.name,
-          userName: user.displayName
-        });
-        return this.createCardResponse('⏳ Processing your previous request...');
-      }
-
-      // Mark message as being processed
-      this.processingMessages.set(messageId, {
-        startTime: Date.now(),
-        spaceName: space.name,
-        userName: user.displayName
-      });
-
-      logger.info('Processing Google Chat message', {
-        messageId,
+    // SYNCHRONOUS duplicate check (no await before this)
+    if (this.processingMessages.has(messageId)) {
+      logger.warn('Duplicate webhook detected, ignoring', {
+        messageId: messageId.substring(0, 100),
         spaceName: space.name,
         userName: user.displayName,
         inFlightCount: this.processingMessages.size
       });
+      return this.createCardResponse('⏳ Processing your previous request...');
+    }
+
+    // Mark IMMEDIATELY before any async operations
+    this.processingMessages.set(messageId, {
+      startTime: Date.now(),
+      spaceName: space.name,
+      userName: user.displayName
+    });
+
+    logger.info('Processing Google Chat message', {
+      messageId: messageId.substring(0, 100),
+      spaceName: space.name,
+      userName: user.displayName,
+      inFlightCount: this.processingMessages.size
+    });
+
+    try {
 
       // Sanitize IDs for Firestore (remove slashes)
       const conversationId = this.sanitizeId(space.name);
@@ -290,12 +292,17 @@ class GoogleChatService {
       let timeoutReached = false;
       let timeoutId = null;
 
+      logger.info('Starting automatic timeout detection', {
+        timeoutMs: WEBHOOK_TIMEOUT_MS,
+        messageId: messageId.substring(0, 100)
+      });
+
       // Timeout promise - resolves with acknowledgment after 50s
       const timeoutPromise = new Promise(resolve => {
         timeoutId = setTimeout(() => {
           timeoutReached = true;
-          logger.warn('Google Chat webhook timeout approaching, returning acknowledgment', {
-            messageText: message.text.substring(0, 100),
+          logger.warn('Google Chat webhook timeout approaching (50s), returning acknowledgment', {
+            messageText: message.text?.substring(0, 100),
             elapsedMs: WEBHOOK_TIMEOUT_MS
           });
           resolve({
@@ -334,22 +341,34 @@ class GoogleChatService {
       // CRITICAL: Clear the timeout timer to prevent it from firing
       if (timeoutId) {
         clearTimeout(timeoutId);
+        logger.info('Cleared timeout timer', {
+          raceWinner: raceResult.type,
+          messageId: messageId.substring(0, 100)
+        });
       }
 
       if (raceResult.type === 'timeout') {
         // Timeout won the race - return acknowledgment immediately
         // Processing continues in the background
+        logger.warn('TIMEOUT PATH: Returning acknowledgment, processing continues in background', {
+          elapsedMs: WEBHOOK_TIMEOUT_MS,
+          messageId: messageId.substring(0, 100)
+        });
+
         processingPromise.then(async result => {
           try {
             if (result.type === 'completed') {
               // Send actual result via Chat API
-              logger.info('Processing completed after timeout, sending result via Chat API');
+              logger.info('BACKGROUND: Processing completed after timeout, sending result via Chat API', {
+                messageId: messageId.substring(0, 100)
+              });
               await this.cacheMessage(conversationId, user, message.text, result.responseText);
               await this.sendMessage(eventData.space.name, result.responseText, result.threadKey);
             } else if (result.type === 'error') {
               // Send error via Chat API
-              logger.error('Error after timeout, sending error via Chat API', {
-                error: result.error.message
+              logger.error('BACKGROUND: Error after timeout, sending error via Chat API', {
+                error: result.error.message,
+                messageId: messageId.substring(0, 100)
               });
               try {
                 await this.sendMessage(
@@ -378,24 +397,31 @@ class GoogleChatService {
         return raceResult.response; // Return acknowledgment
       } else if (raceResult.type === 'completed') {
         // Processing won the race - return normal response
+        logger.info('SUCCESS PATH: Processing completed within timeout, returning normal response', {
+          messageId: messageId.substring(0, 100)
+        });
+
         await this.cacheMessage(conversationId, user, message.text, raceResult.responseText);
 
         // CRITICAL: Remove from processing Map after successful completion
         this.processingMessages.delete(messageId);
-        logger.debug('Removed message from processing Map (success)', {
-          messageId,
+        logger.info('Removed message from processing Map (success)', {
+          messageId: messageId.substring(0, 100),
           remainingCount: this.processingMessages.size
         });
 
         return this.createCardResponse(raceResult.responseText);
       } else if (raceResult.type === 'error') {
         // Error occurred before timeout
-        logger.error('Error during processing', { error: raceResult.error.message });
+        logger.error('ERROR PATH: Error during processing', {
+          error: raceResult.error.message,
+          messageId: messageId.substring(0, 100)
+        });
 
         // CRITICAL: Remove from processing Map after error
         this.processingMessages.delete(messageId);
-        logger.debug('Removed message from processing Map (error)', {
-          messageId,
+        logger.info('Removed message from processing Map (error)', {
+          messageId: messageId.substring(0, 100),
           remainingCount: this.processingMessages.size
         });
 
@@ -404,13 +430,16 @@ class GoogleChatService {
         };
       }
     } catch (error) {
-      logger.error('Error handling Google Chat message', { error: error.message, stack: error.stack });
+      logger.error('EXCEPTION PATH: Error handling Google Chat message', {
+        error: error.message,
+        stack: error.stack,
+        messageId: messageId?.substring(0, 100)
+      });
 
       // CRITICAL: Remove from processing Map on exception
-      const messageId = message?.name || `${space?.name}-${user?.name}-${Date.now()}`;
       this.processingMessages.delete(messageId);
-      logger.debug('Removed message from processing Map (exception)', {
-        messageId,
+      logger.info('Removed message from processing Map (exception)', {
+        messageId: messageId?.substring(0, 100),
         remainingCount: this.processingMessages.size
       });
 
