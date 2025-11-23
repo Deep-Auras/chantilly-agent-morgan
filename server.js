@@ -22,6 +22,7 @@ const authRoutes = require('./routes/auth');
 const knowledgeRoutes = require('./routes/knowledge');
 const workerRoutes = require('./routes/worker');
 const adminRoutes = require('./routes/admin');
+const dashboardRoutes = require('./routes/dashboard');
 
 // Conditional platform integrations
 const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
@@ -39,14 +40,51 @@ const PORT = process.env.PORT || 8080;
 // Configure Express for Cloud Run proxy (trust exactly 1 proxy for security)
 app.set('trust proxy', 1);
 
+// Configure Pug template engine for dashboard
+const path = require('path');
+app.set('view engine', 'pug');
+app.set('views', path.join(__dirname, 'views'));
+
+// Serve static assets from public directory
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Dashboard middleware (session, flash messages)
+// Note: csurf is deprecated, using custom CSRF implementation
+const session = require('express-session');
+const flash = require('connect-flash');
+
+// Session management for dashboard
+app.use(session({
+  secret: process.env.DASHBOARD_SESSION_SECRET || require('crypto').randomBytes(32).toString('hex'),
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: 'lax'
+  }
+}));
+
+// Flash messages
+app.use(flash());
+
+// Make user and flash messages available to all views
+app.use((req, res, next) => {
+  res.locals.user = req.user || null;
+  res.locals.success = req.flash('success');
+  res.locals.error = req.flash('error');
+  next();
+});
+
 // Security middleware (OWASP compliant)
 app.use(securityHeaders);
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ['\'self\''],
-      styleSrc: ['\'self\'', '\'unsafe-inline\''],
-      scriptSrc: ['\'self\''],
+      styleSrc: ['\'self\'', '\'unsafe-inline\'', 'https://cdn.tailwindcss.com'],
+      scriptSrc: ['\'self\'', 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'],
       imgSrc: ['\'self\'', 'data:', 'https:']
     }
   },
@@ -271,6 +309,57 @@ app.get('/health', healthCheck);
 
 // Authentication routes
 app.use('/auth', authRoutes);
+
+// Dashboard routes (web-based configuration management)
+app.use('/dashboard', dashboardRoutes);
+
+// Dashboard API routes (for Alpine.js AJAX calls)
+const dashboardApiRouter = express.Router();
+dashboardApiRouter.use(require('./middleware/auth').verifyToken);
+dashboardApiRouter.get('/stats', async (req, res) => {
+  try {
+    const db = getFirestore();
+    const kbSnapshot = await db.collection('knowledge-base').count().get();
+    const templatesSnapshot = await db.collection('task-templates').count().get();
+    const toolsSnapshot = await db.collection('tool-registry').count().get();
+
+    res.json({
+      agentStatus: 'Active',
+      kbCount: kbSnapshot.data().count,
+      toolsCount: toolsSnapshot.data().count,
+      templatesCount: templatesSnapshot.data().count
+    });
+  } catch (error) {
+    logger.error('Failed to fetch dashboard stats', { error: error.message, userId: req.user?.id });
+    res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+dashboardApiRouter.get('/activity', async (req, res) => {
+  try {
+    const db = getFirestore();
+    const logsSnapshot = await db.collection('audit-logs')
+      .orderBy('timestamp', 'desc')
+      .limit(10)
+      .get();
+
+    const activities = logsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        message: `${data.action} by ${data.username || 'system'}`,
+        timestamp: data.timestamp?.toDate().toLocaleString() || 'Unknown'
+      };
+    });
+
+    res.json({ activities });
+  } catch (error) {
+    logger.error('Failed to fetch recent activity', { error: error.message, userId: req.user?.id });
+    res.status(500).json({ error: 'Failed to fetch activity' });
+  }
+});
+
+app.use('/api/dashboard', dashboardApiRouter);
 
 // Admin routes (Bitrix user management, role control)
 app.use('/admin', adminRoutes);

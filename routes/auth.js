@@ -27,11 +27,33 @@ const createUserSchema = joi.object({
 router.use(authLimiter);
 router.use(sanitizeInput);
 
-// Login endpoint
+// CSRF token generation for forms
+router.use((req, res, next) => {
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = require('crypto').randomBytes(32).toString('hex');
+  }
+  res.locals.csrfToken = req.session.csrfToken;
+  res.locals.success = req.flash('success');
+  res.locals.error = req.flash('error');
+  next();
+});
+
+// Login page (GET)
+router.get('/login', (req, res) => {
+  res.render('auth/login');
+});
+
+// Login endpoint (supports both JSON API and form submission)
 router.post('/login', async (req, res) => {
   try {
     const { error, value } = loginSchema.validate(req.body);
     if (error) {
+      // Form submission - redirect with error
+      if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+        req.flash('error', error.details[0].message);
+        return res.redirect('/auth/login');
+      }
+      // JSON API - return error
       return res.status(400).json({
         success: false,
         error: error.details[0].message
@@ -44,13 +66,38 @@ router.post('/login', async (req, res) => {
 
     if (result.success) {
       logger.info('Successful login', { username });
+
+      // Form submission - set session and redirect to dashboard
+      if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+        req.session.token = result.token;
+        req.session.user = result.user;
+        return res.redirect('/dashboard');
+      }
+
+      // JSON API - return token
       res.json(result);
     } else {
       logger.warn('Failed login attempt', { username, error: result.error });
+
+      // Form submission - redirect with error
+      if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+        req.flash('error', result.error || 'Invalid credentials');
+        return res.redirect('/auth/login');
+      }
+
+      // JSON API - return error
       res.status(401).json(result);
     }
   } catch (error) {
     logger.error('Login error', error);
+
+    // Form submission - redirect with error
+    if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+      req.flash('error', 'Authentication failed');
+      return res.redirect('/auth/login');
+    }
+
+    // JSON API - return error
     res.status(500).json({
       success: false,
       error: 'Authentication failed'
@@ -190,12 +237,28 @@ router.get('/me', authenticateToken, (req, res) => {
   });
 });
 
-// Logout endpoint (optional - client-side token removal)
-router.post('/logout', authenticateToken, (req, res) => {
-  logger.info('User logged out', { username: req.user.username });
-  res.json({
-    success: true,
-    message: 'Logged out successfully'
+// Logout endpoint (supports both JSON API and form submission)
+router.post('/logout', (req, res) => {
+  const username = req.user?.username || req.session?.user?.username || 'unknown';
+  logger.info('User logged out', { username });
+
+  // Clear session
+  req.session.destroy((err) => {
+    if (err) {
+      logger.error('Session destruction error', { error: err.message });
+    }
+
+    // Form submission - redirect to login
+    if (req.headers['content-type']?.includes('application/x-www-form-urlencoded') ||
+        req.headers.accept?.includes('text/html')) {
+      return res.redirect('/auth/login');
+    }
+
+    // JSON API - return success
+    res.json({
+      success: true,
+      message: 'Logged out successfully'
+    });
   });
 });
 

@@ -160,8 +160,118 @@ function sanitizeInput(req, res, next) {
   }
 }
 
+// Middleware to verify JWT token (supports both API and session-based auth)
+function verifyToken(req, res, next) {
+  // Check session first (for dashboard)
+  if (req.session && req.session.token && req.session.user) {
+    // Verify session token
+    jwt.verify(req.session.token, JWT_SECRET, (err, user) => {
+      if (err) {
+        // Session token expired, redirect to login
+        logger.warn('Session token expired', { username: req.session.user.username });
+        req.session.destroy();
+
+        if (req.headers.accept?.includes('text/html')) {
+          return res.redirect('/auth/login');
+        }
+
+        return res.status(401).json({
+          success: false,
+          error: 'Session expired'
+        });
+      }
+
+      // Token valid, set req.user
+      req.user = user;
+      return next();
+    });
+  } else {
+    // Fall back to Authorization header (for API)
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      // No token found, redirect to login or return 401
+      if (req.headers.accept?.includes('text/html')) {
+        return res.redirect('/auth/login');
+      }
+
+      return res.status(401).json({
+        success: false,
+        error: 'Access token required'
+      });
+    }
+
+    // Validate JWT structure
+    if (!SecurityUtils.validateJWTStructure(token)) {
+      logger.warn('Malformed JWT token attempt', {
+        tokenPrefix: token.substring(0, 20) + '...',
+        ip: req.ip
+      });
+
+      if (req.headers.accept?.includes('text/html')) {
+        return res.redirect('/auth/login');
+      }
+
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid token format'
+      });
+    }
+
+    // Verify token
+    jwt.verify(token, JWT_SECRET, (err, user) => {
+      if (err) {
+        logger.warn('Invalid token attempt', {
+          error: err.message,
+          ip: req.ip
+        });
+
+        if (req.headers.accept?.includes('text/html')) {
+          return res.redirect('/auth/login');
+        }
+
+        if (err.name === 'TokenExpiredError') {
+          return res.status(401).json({
+            success: false,
+            error: 'Token expired'
+          });
+        }
+
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid token'
+        });
+      }
+
+      // Validate user object structure
+      if (!user || !user.username || !user.role) {
+        logger.warn('Token missing required user data', {
+          hasUser: !!user,
+          hasUsername: !!(user && user.username),
+          hasRole: !!(user && user.role),
+          ip: req.ip
+        });
+
+        if (req.headers.accept?.includes('text/html')) {
+          return res.redirect('/auth/login');
+        }
+
+        return res.status(401).json({
+          success: false,
+          error: 'Invalid token payload'
+        });
+      }
+
+      req.user = user;
+      next();
+    });
+  }
+}
+
 module.exports = {
   authenticateToken,
+  verifyToken,
   requireAdmin,
   authLimiter,
   sanitizeInput

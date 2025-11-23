@@ -1,0 +1,181 @@
+extends ../layouts/dashboard
+
+block content
+  //- Page Header
+  .mb-8
+    .flex.flex-col.md_flex-row.md_items-center.md_justify-between.gap-4
+      div
+        h1.text-3xl.font-bold.text-gray-900 Platform Integrations
+        p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, and Asana integrations
+
+  //- Platform Cards (Alpine.js reactive)
+  div(x-data="platformsManager()")
+    .grid.grid-cols-1.lg_grid-cols-2.gap-6
+
+      //- Bitrix24 Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.bg-orange-100.rounded-lg.flex.items-center.justify-center
+            svg.w-6.h-6.text-orange-600(fill="currentColor" viewBox="0 0 24 24")
+              path(d="M12 2L2 7v10c0 5.5 3.8 9.7 9 11 5.2-1.3 9-5.5 9-11V7l-10-5z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Bitrix24
+            p.text-sm.text-gray-600 CRM and team collaboration
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="bitrix24.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer.peer-checked_bg-blue-600
+                .absolute.w-5.h-5.bg-white.rounded-full.left-0.5.top-0.5.transition-all.peer-checked_translate-x-5
+
+          div(x-show="bitrix24.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Domain
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bitrix24.domain"
+              placeholder="yourcompany.bitrix24.com"
+            )
+
+          div(x-show="bitrix24.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Webhook URL
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bitrix24.webhookUrl"
+              placeholder="https://yourcompany.bitrix24.com/rest/..."
+            )
+
+          button.w-full.px-4.py-2.bg-orange-600.text-white.rounded-lg.hover_bg-orange-700.transition-colors(
+            @click="savePlatform('bitrix24')"
+          ) Save Bitrix24 Config
+
+      //- Google Chat Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.bg-green-100.rounded-lg.flex.items-center.justify-center
+            svg.w-6.h-6.text-green-600(fill="currentColor" viewBox="0 0 24 24")
+              path(d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.5-7.5 7.5 7.5H19l-7-7-7 7z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Google Chat
+            p.text-sm.text-gray-600 Team messaging and collaboration
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="googleChat.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer.peer-checked_bg-blue-600
+                .absolute.w-5.h-5.bg-white.rounded-full.left-0.5.top-0.5.transition-all.peer-checked_translate-x-5
+
+          div(x-show="googleChat.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Project ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="googleChat.projectId"
+              placeholder="your-gcp-project-id"
+            )
+
+          div(x-show="googleChat.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Service Account
+            textarea.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              rows="3"
+              x-model="googleChat.serviceAccount"
+              placeholder="Paste service account JSON credentials"
+            )
+
+          button.w-full.px-4.py-2.bg-green-600.text-white.rounded-lg.hover_bg-green-700.transition-colors(
+            @click="savePlatform('google-chat')"
+          ) Save Google Chat Config
+
+      //- Asana Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.bg-pink-100.rounded-lg.flex.items-center.justify-center
+            svg.w-6.h-6.text-pink-600(fill="currentColor" viewBox="0 0 24 24")
+              path(d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Asana
+            p.text-sm.text-gray-600 Work management and tracking
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="asana.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer.peer-checked_bg-blue-600
+                .absolute.w-5.h-5.bg-white.rounded-full.left-0.5.top-0.5.transition-all.peer-checked_translate-x-5
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Access Token
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="asana.accessToken"
+              placeholder="Your Asana access token"
+            )
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Workspace GID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="asana.workspaceGid"
+              placeholder="123456789012345"
+            )
+
+          button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.hover_bg-pink-700.transition-colors(
+            @click="savePlatform('asana')"
+          ) Save Asana Config
+
+  //- Alpine.js Platforms Manager
+  script.
+    function platformsManager() {
+      return {
+        bitrix24: {
+          enabled: #{bitrix24.enabled || false},
+          domain: '#{bitrix24.domain || ""}',
+          webhookUrl: '#{bitrix24.webhookUrl || ""}'
+        },
+        googleChat: {
+          enabled: #{googleChat.enabled || false},
+          projectId: '#{googleChat.projectId || ""}',
+          serviceAccount: ''
+        },
+        asana: {
+          enabled: #{asana.enabled || false},
+          accessToken: '',
+          workspaceGid: '#{asana.workspaceGid || ""}'
+        },
+
+        async savePlatform(platformId) {
+          try {
+            const updates = this[platformId.replace('-', '')];
+
+            const response = await fetch(`/dashboard/platforms/${platformId}`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify(updates)
+            });
+
+            if (response.ok) {
+              window.location.reload();
+            } else {
+              console.error(`Failed to update ${platformId} configuration`);
+            }
+          } catch (error) {
+            console.error(`Error updating ${platformId}:`, error);
+          }
+        }
+      }
+    }
