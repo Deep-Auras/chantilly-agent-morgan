@@ -58,8 +58,9 @@ app.use(session({
   secret: process.env.DASHBOARD_SESSION_SECRET || require('crypto').randomBytes(32).toString('hex'),
   resave: false,
   saveUninitialized: false,
+  proxy: true, // CRITICAL: Trust proxy for secure cookies on Cloud Run
   cookie: {
-    secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+    secure: process.env.NODE_ENV === 'production', // HTTPS only in production (works with proxy: true)
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
     sameSite: 'lax'
