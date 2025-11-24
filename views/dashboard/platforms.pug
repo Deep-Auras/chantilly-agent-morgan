@@ -3,14 +3,14 @@ extends ../layouts/dashboard
 block content
   //- Page Header
   .mb-8
-    .flex.flex-col.md_flex-row.md_items-center.md_justify-between.gap-4
+    .flex.flex-col.md:flex-row.md:items-center.md:justify-between.gap-4
       div
         h1.text-3xl.font-bold.text-gray-900 Platform Integrations
         p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, and Asana integrations
 
   //- Platform Cards (Alpine.js reactive)
   div(x-data="platformsManager()")
-    .grid.grid-cols-1.lg_grid-cols-2.gap-6
+    .grid.grid-cols-1.lg:grid-cols-2.gap-6
 
       //- Bitrix24 Card
       .bg-white.rounded-lg.shadow.p-6
@@ -30,8 +30,8 @@ block content
                 type="checkbox"
                 x-model="bitrix24.enabled"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer.peer-checked_bg-blue-600
-                .absolute.w-5.h-5.bg-white.rounded-full.left-0.5.top-0.5.transition-all.peer-checked_translate-x-5
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div(x-show="bitrix24.enabled")
             label.block.text-sm.font-medium.text-gray-700.mb-2 Domain
@@ -49,7 +49,7 @@ block content
               placeholder="https://yourcompany.bitrix24.com/rest/..."
             )
 
-          button.w-full.px-4.py-2.bg-orange-600.text-white.rounded-lg.hover_bg-orange-700.transition-colors(
+          button.w-full.px-4.py-2.bg-orange-600.text-white.rounded-lg.hover:bg-orange-700.transition-colors(
             @click="savePlatform('bitrix24')"
           ) Save Bitrix24 Config
 
@@ -71,8 +71,8 @@ block content
                 type="checkbox"
                 x-model="googleChat.enabled"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer.peer-checked_bg-blue-600
-                .absolute.w-5.h-5.bg-white.rounded-full.left-0.5.top-0.5.transition-all.peer-checked_translate-x-5
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div(x-show="googleChat.enabled")
             label.block.text-sm.font-medium.text-gray-700.mb-2 Project ID
@@ -90,7 +90,7 @@ block content
               placeholder="Paste service account JSON credentials"
             )
 
-          button.w-full.px-4.py-2.bg-green-600.text-white.rounded-lg.hover_bg-green-700.transition-colors(
+          button.w-full.px-4.py-2.bg-green-600.text-white.rounded-lg.hover:bg-green-700.transition-colors(
             @click="savePlatform('google-chat')"
           ) Save Google Chat Config
 
@@ -112,8 +112,8 @@ block content
                 type="checkbox"
                 x-model="asana.enabled"
               )
-              .w-11.h-6.bg-gray-200.rounded-full.peer.peer-checked_bg-blue-600
-                .absolute.w-5.h-5.bg-white.rounded-full.left-0.5.top-0.5.transition-all.peer-checked_translate-x-5
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
 
           div(x-show="asana.enabled")
             label.block.text-sm.font-medium.text-gray-700.mb-2 Access Token
@@ -131,7 +131,7 @@ block content
               placeholder="123456789012345"
             )
 
-          button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.hover_bg-pink-700.transition-colors(
+          button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.hover:bg-pink-700.transition-colors(
             @click="savePlatform('asana')"
           ) Save Asana Config
 

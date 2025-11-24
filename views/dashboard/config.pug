@@ -3,7 +3,7 @@ extends ../layouts/dashboard
 block content
   //- Page Header
   .mb-8
-    .flex.flex-col.md_flex-row.md_items-center.md_justify-between.gap-4
+    .flex.flex-col.md:flex-row.md:items-center.md:justify-between.gap-4
       div
         h1.text-3xl.font-bold.text-gray-900 Agent Configuration
         p.text-gray-600.mt-2 Manage agent personality, feature flags, and system settings
@@ -60,11 +60,11 @@ block content
     .bg-white.rounded-lg.shadow.p-6.mb-6
       h2.text-xl.font-semibold.text-gray-900.mb-4 Agent Personality
       form(@submit.prevent="savePersonality")
-        .grid.grid-cols-1.md_grid-cols-2.gap-6
+        .grid.grid-cols-1.md:grid-cols-2.gap-6
           //- Communication Style
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Communication Style
-            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               x-model="personality.communication"
             )
               option(value="professional") Professional
@@ -75,7 +75,7 @@ block content
           //- Response Length
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Response Length
-            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               x-model="personality.responseLength"
             )
               option(value="concise") Concise
@@ -85,7 +85,7 @@ block content
           //- Proactiveness
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Proactiveness
-            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            select.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               x-model="personality.proactiveness"
             )
               option(value="reactive") Reactive (wait for requests)
@@ -104,7 +104,7 @@ block content
             p.text-sm.text-gray-600.mt-1 Level: <span x-text="personality.humor"></span>/10
 
         .mt-6.flex.justify-end
-          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.hover_bg-blue-700.transition-colors(
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.hover:bg-blue-700.transition-colors(
             type="submit"
           ) Save Personality
 
@@ -112,11 +112,11 @@ block content
     .bg-white.rounded-lg.shadow.p-6
       h2.text-xl.font-semibold.text-gray-900.mb-4 Rate Limits
       form(@submit.prevent="saveRateLimits")
-        .grid.grid-cols-1.md_grid-cols-2.gap-6
+        .grid.grid-cols-1.md:grid-cols-2.gap-6
           //- General Rate Limit
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 General Requests
-            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               type="number"
               x-model="rateLimits.general"
               placeholder="100"
@@ -126,7 +126,7 @@ block content
           //- Authentication Rate Limit
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Authentication
-            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               type="number"
               x-model="rateLimits.auth"
               placeholder="10"
@@ -136,7 +136,7 @@ block content
           //- Webhook Rate Limit
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 Webhooks
-            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               type="number"
               x-model="rateLimits.webhook"
               placeholder="100"
@@ -146,7 +146,7 @@ block content
           //- API Rate Limit
           div
             label.block.text-sm.font-medium.text-gray-700.mb-2 API Calls
-            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus_ring-2.focus_ring-blue-500.focus_border-blue-500(
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg.focus:ring-2.focus:ring-blue-500.focus:border-blue-500(
               type="number"
               x-model="rateLimits.api"
               placeholder="60"
@@ -154,7 +154,7 @@ block content
             p.text-xs.text-gray-500.mt-1 API requests per minute
 
         .mt-6.flex.justify-end
-          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.hover_bg-blue-700.transition-colors(
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.hover:bg-blue-700.transition-colors(
             type="submit"
           ) Save Rate Limits
 
