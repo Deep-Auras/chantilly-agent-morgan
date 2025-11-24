@@ -3,14 +3,14 @@ extends ../layouts/dashboard
 block content
   //- Page Header
   .mb-8
-    .flex.flex-col.md:flex-row.md:items-center.md:justify-between.gap-4
+    .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
       div
         h1.text-3xl.font-bold.text-gray-900 Platform Integrations
         p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, and Asana integrations
 
   //- Platform Cards (Alpine.js reactive)
   div(x-data="platformsManager()")
-    .grid.grid-cols-1.lg:grid-cols-2.gap-6
+    .grid.grid-cols-1.gap-6(class="lg:grid-cols-2")
 
       //- Bitrix24 Card
       .bg-white.rounded-lg.shadow.p-6
@@ -49,8 +49,9 @@ block content
               placeholder="https://yourcompany.bitrix24.com/rest/..."
             )
 
-          button.w-full.px-4.py-2.bg-orange-600.text-white.rounded-lg.hover:bg-orange-700.transition-colors(
+          button.w-full.px-4.py-2.bg-orange-600.text-white.rounded-lg.transition-colors(
             @click="savePlatform('bitrix24')"
+            class="hover:bg-orange-700"
           ) Save Bitrix24 Config
 
       //- Google Chat Card
@@ -90,8 +91,9 @@ block content
               placeholder="Paste service account JSON credentials"
             )
 
-          button.w-full.px-4.py-2.bg-green-600.text-white.rounded-lg.hover:bg-green-700.transition-colors(
+          button.w-full.px-4.py-2.bg-green-600.text-white.rounded-lg.transition-colors(
             @click="savePlatform('google-chat')"
+            class="hover:bg-green-700"
           ) Save Google Chat Config
 
       //- Asana Card
@@ -131,8 +133,9 @@ block content
               placeholder="123456789012345"
             )
 
-          button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.hover:bg-pink-700.transition-colors(
+          button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.transition-colors(
             @click="savePlatform('asana')"
+            class="hover:bg-pink-700"
           ) Save Asana Config
 
   //- Alpine.js Platforms Manager
