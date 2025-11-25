@@ -369,7 +369,7 @@ router.get('/tools', async (req, res) => {
         name: tool.name,
         description: tool.description,
         category: tool.category || 'general',
-        enabled: typeof tool.isEnabled === 'function' ? tool.isEnabled() : true,
+        enabled: tool.enabled !== undefined ? tool.enabled : true,
         priority: tool.priority || 0
       })),
       toolAccess: TOOL_ACCESS_CONTROL
