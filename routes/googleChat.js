@@ -7,26 +7,9 @@ const { logger } = require('../utils/logger');
  * Google Chat webhook endpoint
  */
 router.post('/webhook/google-chat', async (req, res) => {
-  logger.info('🔥 ROUTE HANDLER EXECUTING - TOP OF FUNCTION', {
-    path: req.path,
-    method: req.method,
-    timestamp: Date.now()
-  });
-
   try {
-    logger.info('Google Chat webhook received', {
-      hasBody: !!req.body,
-      bodyKeys: req.body ? Object.keys(req.body) : []
-    });
-
     const event = req.body;
     const chatService = getGoogleChatService();
-
-    logger.info('Chat service obtained, analyzing event format', {
-      hasChat: !!event.chat,
-      hasType: !!event.type,
-      hasMessage: !!event.message
-    });
 
     // Google Workspace Add-on format: event.chat.messagePayload
     // Simple Chat app format: event.type, event.message, event.space
@@ -64,13 +47,6 @@ router.post('/webhook/google-chat', async (req, res) => {
       if (event.message) eventType = 'MESSAGE';
     }
 
-    logger.info('Google Chat event processed', {
-      eventType,
-      isAddOnFormat,
-      userName: transformedEvent.user?.displayName,
-      spaceName: transformedEvent.space?.name
-    });
-
     switch (eventType) {
       case 'MESSAGE':
         if (transformedEvent.message.slashCommand) {
@@ -83,23 +59,12 @@ router.post('/webhook/google-chat', async (req, res) => {
           const hasFeedbackKeywords = /change|update|fix|add|didn't|missing|wrong|incorrect|modify|remove|needs?|should|require/i.test(messageText);
 
           if (hasTaskReference && hasFeedbackKeywords) {
-            logger.info('Task feedback detected, routing to handleTaskFeedback', {
-              hasTaskReference,
-              hasFeedbackKeywords,
-              messagePreview: messageText.substring(0, 100)
-            });
             const response = await chatService.handleTaskFeedback(transformedEvent);
             return res.json(response);
           }
 
           // Default message handling
-          logger.info('Calling handleMessage', {
-            messagePreview: transformedEvent.message?.text?.substring(0, 100)
-          });
           const response = await chatService.handleMessage(transformedEvent);
-          logger.info('handleMessage returned, sending response', {
-            hasResponse: !!response
-          });
           return res.json(response);
         }
 

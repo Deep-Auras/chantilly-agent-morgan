@@ -221,24 +221,11 @@ class GoogleChatService {
   async handleMessage(event) {
     const { message, space, user } = event;
 
-    logger.info('ENTER handleMessage', {
-      hasMessage: !!message,
-      hasSpace: !!space,
-      hasUser: !!user,
-      messageText: message?.text?.substring(0, 100)
-    });
-
     // PHASE 16.3: REQUEST DEDUPLICATION (CRITICAL - Must happen FIRST)
     // Google Chat sends duplicate webhooks within 133ms, too fast for async Map checks.
     // Use message.name (or generate stable ID) to detect duplicates.
 
     const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
-
-    logger.info('Generated messageId for deduplication', {
-      messageId: messageId.substring(0, 100),
-      hasMessageName: !!message.name,
-      inFlightCount: this.processingMessages.size
-    });
 
     // SYNCHRONOUS duplicate check (no await before this)
     if (this.processingMessages.has(messageId)) {
@@ -258,25 +245,13 @@ class GoogleChatService {
       userName: user.displayName
     });
 
-    logger.info('Processing Google Chat message', {
-      messageId: messageId.substring(0, 100),
-      spaceName: space.name,
-      userName: user.displayName,
-      inFlightCount: this.processingMessages.size
-    });
-
     try {
-
       // Sanitize IDs for Firestore (remove slashes)
       const conversationId = this.sanitizeId(space.name);
       const userId = this.sanitizeId(user.name);
 
-      logger.info('About to detect user role', { userId, conversationId });
-
       // Detect and store user role
       const userRole = await this.getUserRole(user, space);
-
-      logger.info('User role detected, preparing message data', { userRole });
 
       // Process message with Gemini using processMessage
       const gemini = getGeminiService();
@@ -308,11 +283,6 @@ class GoogleChatService {
       const WEBHOOK_TIMEOUT_MS = 10000; // 10s threshold (30s observed timeout, 20s safety margin)
       let timeoutReached = false;
       let timeoutId = null;
-
-      logger.info('Starting automatic timeout detection', {
-        timeoutMs: WEBHOOK_TIMEOUT_MS,
-        messageId: messageId.substring(0, 100)
-      });
 
       // Timeout promise - resolves with acknowledgment after 10s
       const timeoutPromise = new Promise(resolve => {
@@ -358,35 +328,19 @@ class GoogleChatService {
       // CRITICAL: Clear the timeout timer to prevent it from firing
       if (timeoutId) {
         clearTimeout(timeoutId);
-        logger.info('Cleared timeout timer', {
-          raceWinner: raceResult.type,
-          messageId: messageId.substring(0, 100)
-        });
       }
 
       if (raceResult.type === 'timeout') {
         // Timeout won the race - return acknowledgment immediately
         // Processing continues in the background
-        logger.warn('TIMEOUT PATH: Returning acknowledgment, processing continues in background', {
-          elapsedMs: WEBHOOK_TIMEOUT_MS,
-          messageId: messageId.substring(0, 100)
-        });
-
         processingPromise.then(async result => {
           try {
             if (result.type === 'completed') {
               // Send actual result via Chat API
-              logger.info('BACKGROUND: Processing completed after timeout, sending result via Chat API', {
-                messageId: messageId.substring(0, 100)
-              });
               await this.cacheMessage(conversationId, user, message.text, result.responseText);
               await this.sendMessage(eventData.space.name, result.responseText, result.threadKey);
             } else if (result.type === 'error') {
               // Send error via Chat API
-              logger.error('BACKGROUND: Error after timeout, sending error via Chat API', {
-                error: result.error.message,
-                messageId: messageId.substring(0, 100)
-              });
               try {
                 await this.sendMessage(
                   eventData.space.name,
@@ -414,51 +368,33 @@ class GoogleChatService {
         return raceResult.response; // Return acknowledgment
       } else if (raceResult.type === 'completed') {
         // Processing won the race - return normal response
-        logger.info('SUCCESS PATH: Processing completed within timeout, returning normal response', {
-          messageId: messageId.substring(0, 100)
-        });
-
         await this.cacheMessage(conversationId, user, message.text, raceResult.responseText);
 
         // CRITICAL: Remove from processing Map after successful completion
         this.processingMessages.delete(messageId);
-        logger.info('Removed message from processing Map (success)', {
-          messageId: messageId.substring(0, 100),
-          remainingCount: this.processingMessages.size
-        });
 
         return this.createCardResponse(raceResult.responseText);
       } else if (raceResult.type === 'error') {
         // Error occurred before timeout
-        logger.error('ERROR PATH: Error during processing', {
-          error: raceResult.error.message,
-          messageId: messageId.substring(0, 100)
+        logger.error('Error during Google Chat message processing', {
+          error: raceResult.error.message
         });
 
         // CRITICAL: Remove from processing Map after error
         this.processingMessages.delete(messageId);
-        logger.info('Removed message from processing Map (error)', {
-          messageId: messageId.substring(0, 100),
-          remainingCount: this.processingMessages.size
-        });
 
         return {
           text: '❌ Sorry, I encountered an error processing your message.'
         };
       }
     } catch (error) {
-      logger.error('EXCEPTION PATH: Error handling Google Chat message', {
+      logger.error('Error handling Google Chat message', {
         error: error.message,
-        stack: error.stack,
-        messageId: messageId?.substring(0, 100)
+        stack: error.stack
       });
 
       // CRITICAL: Remove from processing Map on exception
       this.processingMessages.delete(messageId);
-      logger.info('Removed message from processing Map (exception)', {
-        messageId: messageId?.substring(0, 100),
-        remainingCount: this.processingMessages.size
-      });
 
       return {
         text: '❌ Sorry, I encountered an error processing your message.'
