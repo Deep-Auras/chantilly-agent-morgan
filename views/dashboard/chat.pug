@@ -131,7 +131,7 @@ block content
         async init() {
           try {
             // Get or create conversation
-            const response = await fetch('/api/chat/conversation', {
+            const response = await fetch('/dashboard/api/chat/conversation', {
               headers: {
                 'X-CSRF-Token': window.csrfToken
               }
@@ -165,7 +165,7 @@ block content
 
         async loadMessages() {
           try {
-            const response = await fetch(`/api/chat/messages?conversationId=${this.conversationId}`, {
+            const response = await fetch(`/dashboard/api/chat/messages?conversationId=${this.conversationId}`, {
               headers: {
                 'X-CSRF-Token': window.csrfToken
               }
@@ -187,7 +187,7 @@ block content
           // For now, poll every 2 seconds for new messages
           setInterval(async () => {
             if (!this.streaming && this.conversationId) {
-              const response = await fetch(`/api/chat/messages?conversationId=${this.conversationId}&after=${this.getLastMessageTime()}`, {
+              const response = await fetch(`/dashboard/api/chat/messages?conversationId=${this.conversationId}&after=${this.getLastMessageTime()}`, {
                 headers: {
                   'X-CSRF-Token': window.csrfToken
                 }
@@ -236,7 +236,7 @@ block content
           this.streamingMessage = '';
 
           try {
-            const response = await fetch('/api/chat/stream', {
+            const response = await fetch('/dashboard/api/chat/stream', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -310,7 +310,7 @@ block content
           }
 
           try {
-            const response = await fetch('/api/chat/clear', {
+            const response = await fetch('/dashboard/api/chat/clear', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
