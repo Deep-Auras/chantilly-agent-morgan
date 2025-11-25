@@ -147,18 +147,17 @@ block content
               x-model="geminiConfig.GEMINI_MODEL"
               class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             )
-              optgroup(label="Stable Models (Recommended)")
-                option(value="gemini-3-pro") Gemini 3 Pro (Latest & Most Intelligent)
+              optgroup(label="Latest Models (November 2025)")
+                option(value="gemini-3-pro-preview-11-2025") Gemini 3 Pro (Latest & Most Intelligent)
                 option(value="gemini-2.5-pro") Gemini 2.5 Pro (Reasoning & Long Context)
                 option(value="gemini-2.5-flash") Gemini 2.5 Flash (Best Price-Performance)
+              optgroup(label="Stable Models")
                 option(value="gemini-2.5-flash-lite") Gemini 2.5 Flash Lite (Fast & Low-Cost)
                 option(value="gemini-2.0-flash") Gemini 2.0 Flash
                 option(value="gemini-2.0-flash-lite") Gemini 2.0 Flash Lite
-              optgroup(label="Preview Models")
-                option(value="gemini-3-pro-preview") Gemini 3 Pro Preview
+              optgroup(label="Preview/Experimental")
                 option(value="gemini-2.5-flash-preview-09-2025") Gemini 2.5 Flash Preview
                 option(value="gemini-2.5-flash-lite-preview-09-2025") Gemini 2.5 Flash Lite Preview
-              optgroup(label="Experimental")
                 option(value="gemini-2.0-flash-exp") Gemini 2.0 Flash Experimental
             p.text-xs.text-gray-500.mt-1 Select the Gemini model for AI responses
 
