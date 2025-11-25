@@ -53,6 +53,14 @@ router.use(validateCSRF);
 
 // Make user and dynamic agent name available to all views
 router.use(async (req, res, next) => {
+  logger.info('Dashboard middleware - start', { path: req.path, method: req.method });
+
+  // Skip user/agentName loading for API routes - not needed
+  if (req.path.startsWith('/api/')) {
+    logger.info('Dashboard middleware - skipping for API route', { path: req.path });
+    return next();
+  }
+
   // Load full user data from Firestore to get profilePicture
   if (req.user && req.user.id) {
     try {
@@ -88,6 +96,7 @@ router.use(async (req, res, next) => {
     res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
   }
 
+  logger.info('Dashboard middleware - complete', { path: req.path });
   next();
 });
 
