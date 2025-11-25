@@ -7,6 +7,12 @@ const { logger } = require('../utils/logger');
  * Google Chat webhook endpoint
  */
 router.post('/webhook/google-chat', async (req, res) => {
+  logger.info('🔥 ROUTE HANDLER EXECUTING - TOP OF FUNCTION', {
+    path: req.path,
+    method: req.method,
+    timestamp: Date.now()
+  });
+
   try {
     logger.info('Google Chat webhook received', {
       hasBody: !!req.body,
