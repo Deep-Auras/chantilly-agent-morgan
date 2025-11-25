@@ -50,9 +50,9 @@ block content
               placeholder="https://yourcompany.bitrix24.com/rest/..."
             )
 
-          button.w-full.px-4.py-2.bg-orange-600.text-white.rounded-lg.transition-colors(
+          button.w-full.px-4.py-2.bg-cyan-500.text-white.rounded-lg.transition-colors(
             @click="savePlatform('bitrix24')"
-            class="hover:bg-orange-700"
+            class="hover:bg-cyan-600"
           ) Save Bitrix24 Config
 
       //- Google Chat Card
@@ -99,9 +99,9 @@ block content
               p.text-xs.text-gray-600.mt-2
                 | No additional configuration needed. The service uses your project ID from Core Configuration automatically.
 
-          button.w-full.px-4.py-2.bg-green-600.text-white.rounded-lg.transition-colors(
+          button.w-full.px-4.py-2.bg-blue-500.text-white.rounded-lg.transition-colors(
             @click="savePlatform('google-chat')"
-            class="hover:bg-green-700"
+            class="hover:bg-blue-600"
           ) Save Google Chat Config
 
       //- Asana Card
@@ -146,6 +146,24 @@ block content
               x-model="asana.workspaceGid"
               placeholder="123456789012345"
             )
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Bot Email
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="email"
+              x-model="asana.botEmail"
+              placeholder="morgan@yourcompany.asana.com"
+            )
+            p.text-xs.text-gray-500.mt-1 Email address of the Asana bot account for task assignment detection
+
+          div(x-show="asana.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Webhook Secret
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="asana.webhookSecret"
+              placeholder="Your Asana webhook secret"
+            )
+            p.text-xs.text-gray-500.mt-1 Secret for validating incoming Asana webhook events
 
           button.w-full.px-4.py-2.bg-pink-600.text-white.rounded-lg.transition-colors(
             @click="savePlatform('asana')"
@@ -225,7 +243,9 @@ block content
         asana: {
           enabled: #{asana.enabled || false},
           accessToken: '',
-          workspaceGid: '#{asana.workspaceGid || ""}'
+          workspaceGid: '#{asana.workspaceGid || ""}',
+          botEmail: '#{asana.botEmail || ""}',
+          webhookSecret: ''
         },
         bluesky: {
           enabled: #{bluesky.enabled || false},

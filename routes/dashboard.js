@@ -784,6 +784,7 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
       if (!updates.accessToken || !updates.workspaceGid) {
         return res.status(400).json({ error: 'Access token and workspace GID required for Asana' });
       }
+      // Bot email and webhook secret are optional but recommended
     }
 
     if (platformId === 'bluesky' && updates.enabled) {
@@ -812,6 +813,14 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     }
 
     // Google Chat uses ADC - no credentials to encrypt
+
+    if (updates.webhookSecret && platformId === 'asana') {
+      updates.webhookSecret = await configManager.updateCredential(
+        'asana_webhook_secret',
+        updates.webhookSecret,
+        req.user.id
+      );
+    }
 
     if (updates.appPassword && platformId === 'bluesky') {
       updates.appPassword = await configManager.updateCredential(
