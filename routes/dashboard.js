@@ -274,6 +274,34 @@ router.get('/knowledge', async (req, res) => {
 });
 
 /**
+ * Knowledge Base Add Page
+ * GET /dashboard/knowledge/add
+ */
+router.get('/knowledge/add', requireAdmin, async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const kb = getKnowledgeBase();
+
+    // Get categories for dropdown
+    const categories = await kb.getCategories();
+
+    res.locals.currentPage = 'knowledge';
+    res.locals.title = 'Add Knowledge Entry';
+
+    res.render('dashboard/knowledge-add', {
+      categories
+    });
+  } catch (error) {
+    logger.error('Knowledge Base add page error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load add page');
+    res.redirect('/dashboard/knowledge');
+  }
+});
+
+/**
  * Knowledge Base Edit Page
  * GET /dashboard/knowledge/edit/:id
  */
@@ -340,8 +368,8 @@ router.get('/tools', async (req, res) => {
       tools: tools.map(tool => ({
         name: tool.name,
         description: tool.description,
-        category: tool.category,
-        enabled: tool.enabled,
+        category: tool.category || 'general',
+        enabled: typeof tool.isEnabled === 'function' ? tool.isEnabled() : true,
         priority: tool.priority || 0
       })),
       toolAccess: TOOL_ACCESS_CONTROL
