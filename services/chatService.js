@@ -317,10 +317,12 @@ class ChatService {
       let fullResponse = '';
 
       // Stream chunks to client
-      for await (const chunk of result.stream) {
+      // Note: @google/genai v1.30+ returns directly iterable response (not result.stream)
+      for await (const chunk of result) {
         if (cleaned) break; // Stop if connection closed
 
-        const text = extractGeminiText(chunk);
+        // New SDK structure: chunk.text is directly available
+        const text = chunk.text || extractGeminiText(chunk);
         if (text) {
           fullResponse += text;
 
