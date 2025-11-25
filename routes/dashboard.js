@@ -274,6 +274,52 @@ router.get('/knowledge', async (req, res) => {
 });
 
 /**
+ * Knowledge Base Edit Page
+ * GET /dashboard/knowledge/edit/:id
+ */
+router.get('/knowledge/edit/:id', requireAdmin, async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const kb = getKnowledgeBase();
+
+    // Get the specific entry
+    const entry = await kb.getKnowledge(req.params.id);
+
+    if (!entry) {
+      req.flash('error', 'Knowledge entry not found');
+      return res.redirect('/dashboard/knowledge');
+    }
+
+    // Get categories for dropdown
+    const categories = await kb.getCategories();
+
+    res.locals.currentPage = 'knowledge';
+    res.locals.title = 'Edit Knowledge Entry';
+
+    res.render('dashboard/knowledge-edit', {
+      entry: {
+        id: entry.id,
+        title: entry.title || '',
+        content: entry.content || '',
+        category: entry.category || 'general',
+        priority: entry.priority || 0,
+        tags: Array.isArray(entry.tags) ? entry.tags : [],
+        enabled: entry.enabled !== false
+      },
+      categories
+    });
+  } catch (error) {
+    logger.error('Knowledge Base edit page error', {
+      error: error.message,
+      userId: req.user.id,
+      entryId: req.params.id
+    });
+    req.flash('error', 'Failed to load knowledge entry');
+    res.redirect('/dashboard/knowledge');
+  }
+});
+
+/**
  * Tools Dashboard
  * GET /dashboard/tools
  */
