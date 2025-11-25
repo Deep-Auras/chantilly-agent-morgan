@@ -118,8 +118,10 @@ class AuthService {
       });
 
       // Generate JWT token
+      // CRITICAL: Include 'id' field (username is the document ID in Firestore)
       const token = jwt.sign(
         {
+          id: username, // Firestore document ID
           username: userData.username,
           email: userData.email,
           role: userData.role

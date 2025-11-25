@@ -312,7 +312,7 @@ class GeminiService {
 
         try {
           const result = await client.models.generateContent({
-            model: 'gemini-2.0-flash-exp',
+            model: config.GEMINI_MODEL,
             contents: contents,
             config: {
               systemInstruction: sanitizedSystemPrompt
