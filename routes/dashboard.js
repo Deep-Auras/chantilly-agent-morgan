@@ -434,11 +434,13 @@ router.get('/users', requireAdmin, async (req, res) => {
       return {
         id: doc.id,
         username: data.username,
+        email: data.email || '',
         role: data.role,
         createdAt: data.createdAt,
         lastLogin: data.lastLogin,
         loginAttempts: data.loginAttempts || 0,
-        locked: data.locked || false
+        locked: data.locked || false,
+        profilePicture: data.profilePicture || null
       };
     });
 
@@ -854,6 +856,392 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
       userId: req.user.id
     });
     res.status(500).json({ error: 'Failed to update platform configuration' });
+  }
+});
+
+/**
+ * User Management API Routes
+ */
+
+// Get single user details (Admin only)
+router.get('/api/users/:id', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+    const userDoc = await db.collection('users').doc(req.params.id).get();
+
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const userData = userDoc.data();
+
+    // Return user data without sensitive fields
+    res.json({
+      id: userDoc.id,
+      username: userData.username,
+      email: userData.email || '',
+      role: userData.role,
+      createdAt: userData.createdAt,
+      lastLogin: userData.lastLogin,
+      locked: userData.locked || false,
+      profilePicture: userData.profilePicture || null
+    });
+  } catch (error) {
+    logger.error('Failed to get user details', {
+      error: error.message,
+      userId: req.user.id,
+      targetUserId: req.params.id
+    });
+    res.status(500).json({ error: 'Failed to get user details' });
+  }
+});
+
+// Update user (Admin only)
+router.put('/api/users/:id', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+    const { email, role } = req.body;
+
+    // Validate role
+    if (role && !['user', 'admin'].includes(role)) {
+      return res.status(400).json({ error: 'Invalid role. Must be "user" or "admin"' });
+    }
+
+    // Validate email format (basic)
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Check if user exists
+    const userDoc = await db.collection('users').doc(req.params.id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent admins from demoting themselves
+    if (req.params.id === req.user.id && role === 'user') {
+      return res.status(400).json({ error: 'Cannot demote yourself from admin' });
+    }
+
+    const updates = {};
+    if (email !== undefined) updates.email = email;
+    if (role !== undefined) updates.role = role;
+
+    await db.collection('users').doc(req.params.id).update(updates);
+
+    // Audit log
+    await db.collection('audit-logs').add({
+      action: 'user_update',
+      targetUserId: req.params.id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date(),
+      details: updates
+    });
+
+    logger.info('User updated', {
+      targetUserId: req.params.id,
+      userId: req.user.id,
+      updates: Object.keys(updates)
+    });
+
+    res.json({ success: true, message: 'User updated successfully' });
+  } catch (error) {
+    logger.error('Failed to update user', {
+      error: error.message,
+      userId: req.user.id,
+      targetUserId: req.params.id
+    });
+    res.status(500).json({ error: 'Failed to update user' });
+  }
+});
+
+// Reset user password (Admin only)
+router.post('/api/users/:id/reset-password', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+    const bcrypt = require('bcrypt');
+    const crypto = require('crypto');
+
+    // Check if user exists
+    const userDoc = await db.collection('users').doc(req.params.id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Generate temporary password (12 characters, alphanumeric)
+    const tempPassword = crypto.randomBytes(9).toString('base64').substring(0, 12);
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+    // Update user with new password and require password change
+    await db.collection('users').doc(req.params.id).update({
+      password: hashedPassword,
+      requirePasswordChange: true,
+      loginAttempts: 0,
+      locked: false
+    });
+
+    // Audit log
+    await db.collection('audit-logs').add({
+      action: 'password_reset',
+      targetUserId: req.params.id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('Password reset', {
+      targetUserId: req.params.id,
+      userId: req.user.id
+    });
+
+    res.json({
+      success: true,
+      tempPassword,
+      message: 'Password reset successfully. User will be required to change password on next login.'
+    });
+  } catch (error) {
+    logger.error('Failed to reset password', {
+      error: error.message,
+      userId: req.user.id,
+      targetUserId: req.params.id
+    });
+    res.status(500).json({ error: 'Failed to reset password' });
+  }
+});
+
+// Lock user account (Admin only)
+router.post('/api/users/:id/lock', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+
+    // Check if user exists
+    const userDoc = await db.collection('users').doc(req.params.id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Prevent admins from locking themselves
+    if (req.params.id === req.user.id) {
+      return res.status(400).json({ error: 'Cannot lock your own account' });
+    }
+
+    await db.collection('users').doc(req.params.id).update({
+      locked: true,
+      lockedAt: new Date(),
+      lockedBy: req.user.id
+    });
+
+    // Audit log
+    await db.collection('audit-logs').add({
+      action: 'user_locked',
+      targetUserId: req.params.id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('User account locked', {
+      targetUserId: req.params.id,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, message: 'User account locked successfully' });
+  } catch (error) {
+    logger.error('Failed to lock user account', {
+      error: error.message,
+      userId: req.user.id,
+      targetUserId: req.params.id
+    });
+    res.status(500).json({ error: 'Failed to lock user account' });
+  }
+});
+
+// Unlock user account (Admin only)
+router.post('/api/users/:id/unlock', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+
+    // Check if user exists
+    const userDoc = await db.collection('users').doc(req.params.id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    await db.collection('users').doc(req.params.id).update({
+      locked: false,
+      loginAttempts: 0,
+      lockedAt: null,
+      lockedBy: null
+    });
+
+    // Audit log
+    await db.collection('audit-logs').add({
+      action: 'user_unlocked',
+      targetUserId: req.params.id,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('User account unlocked', {
+      targetUserId: req.params.id,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, message: 'User account unlocked successfully' });
+  } catch (error) {
+    logger.error('Failed to unlock user account', {
+      error: error.message,
+      userId: req.user.id,
+      targetUserId: req.params.id
+    });
+    res.status(500).json({ error: 'Failed to unlock user account' });
+  }
+});
+
+/**
+ * User Profile Routes (Self-Service)
+ */
+
+// Get current user profile
+router.get('/profile', async (req, res) => {
+  try {
+    const db = getFirestore();
+    const userDoc = await db.collection('users').doc(req.user.id).get();
+
+    if (!userDoc.exists) {
+      req.flash('error', 'User not found');
+      return res.redirect('/dashboard');
+    }
+
+    const userData = userDoc.data();
+
+    res.locals.currentPage = 'users';
+    res.locals.title = 'My Profile';
+
+    res.render('dashboard/profile', {
+      user: {
+        id: userDoc.id,
+        username: userData.username,
+        email: userData.email || '',
+        role: userData.role,
+        profilePicture: userData.profilePicture || null,
+        createdAt: userData.createdAt,
+        lastLogin: userData.lastLogin
+      }
+    });
+  } catch (error) {
+    logger.error('Profile page error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load profile');
+    res.redirect('/dashboard');
+  }
+});
+
+// Update current user profile
+router.put('/api/profile', async (req, res) => {
+  try {
+    const db = getFirestore();
+    const bcrypt = require('bcrypt');
+    const { email, currentPassword, newPassword, profilePicture } = req.body;
+
+    const userDoc = await db.collection('users').doc(req.user.id).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const userData = userDoc.data();
+    const updates = {};
+
+    // Update email if provided
+    if (email !== undefined && email !== userData.email) {
+      // Validate email format
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ error: 'Invalid email format' });
+      }
+      updates.email = email;
+    }
+
+    // Update profile picture if provided
+    if (profilePicture !== undefined) {
+      // Validate URL format
+      if (profilePicture && profilePicture.trim() !== '') {
+        try {
+          const url = new URL(profilePicture);
+          // Validate protocol (HTTP or HTTPS only)
+          if (!['http:', 'https:'].includes(url.protocol)) {
+            return res.status(400).json({ error: 'Profile picture URL must use HTTP or HTTPS protocol' });
+          }
+          updates.profilePicture = profilePicture;
+        } catch (e) {
+          return res.status(400).json({ error: 'Invalid profile picture URL format' });
+        }
+      } else {
+        // Allow empty string to remove profile picture
+        updates.profilePicture = null;
+      }
+    }
+
+    // Update password if provided
+    if (newPassword) {
+      // Require current password for password change
+      if (!currentPassword) {
+        return res.status(400).json({ error: 'Current password required to change password' });
+      }
+
+      // Verify current password
+      const validPassword = await bcrypt.compare(currentPassword, userData.password);
+      if (!validPassword) {
+        return res.status(401).json({ error: 'Current password is incorrect' });
+      }
+
+      // Validate new password strength (minimum 8 characters)
+      if (newPassword.length < 8) {
+        return res.status(400).json({ error: 'New password must be at least 8 characters' });
+      }
+
+      // Hash new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      updates.password = hashedPassword;
+      updates.requirePasswordChange = false;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No changes provided' });
+    }
+
+    await db.collection('users').doc(req.user.id).update(updates);
+
+    // Audit log
+    await db.collection('audit-logs').add({
+      action: 'profile_update',
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date(),
+      details: {
+        emailChanged: !!updates.email,
+        passwordChanged: !!updates.password,
+        profilePictureChanged: updates.profilePicture !== undefined
+      }
+    });
+
+    logger.info('Profile updated', {
+      userId: req.user.id,
+      changes: Object.keys(updates).filter(k => k !== 'password')
+    });
+
+    res.json({ success: true, message: 'Profile updated successfully' });
+  } catch (error) {
+    logger.error('Failed to update profile', {
+      error: error.message,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to update profile' });
   }
 });
 
