@@ -1118,10 +1118,24 @@ router.post('/api/users/:id/unlock', requireAdmin, async (req, res) => {
 // Get current user profile
 router.get('/profile', async (req, res) => {
   try {
+    // CRITICAL: Check if req.user exists (set by verifyToken middleware)
+    if (!req.user || !req.user.id) {
+      logger.error('Profile page error: req.user not set', {
+        hasReqUser: !!req.user,
+        userId: req.user?.id,
+        sessionID: req.sessionID
+      });
+      req.flash('error', 'Authentication error. Please log in again.');
+      return res.redirect('/auth/login');
+    }
+
     const db = getFirestore();
     const userDoc = await db.collection('users').doc(req.user.id).get();
 
     if (!userDoc.exists) {
+      logger.warn('Profile page: user document not found', {
+        userId: req.user.id
+      });
       req.flash('error', 'User not found');
       return res.redirect('/dashboard');
     }
@@ -1138,14 +1152,21 @@ router.get('/profile', async (req, res) => {
         email: userData.email || '',
         role: userData.role,
         profilePicture: userData.profilePicture || null,
-        createdAt: userData.createdAt,
-        lastLogin: userData.lastLogin
+        // Convert Firestore Timestamps to objects with _seconds property for template compatibility
+        createdAt: userData.createdAt ? {
+          _seconds: userData.createdAt.seconds || userData.createdAt._seconds || Math.floor(new Date(userData.createdAt).getTime() / 1000)
+        } : null,
+        lastLogin: userData.lastLogin ? {
+          _seconds: userData.lastLogin.seconds || userData.lastLogin._seconds || Math.floor(new Date(userData.lastLogin).getTime() / 1000)
+        } : null
       }
     });
   } catch (error) {
     logger.error('Profile page error', {
       error: error.message,
-      userId: req.user.id
+      stack: error.stack,
+      userId: req.user?.id,
+      hasReqUser: !!req.user
     });
     req.flash('error', 'Failed to load profile');
     res.redirect('/dashboard');
