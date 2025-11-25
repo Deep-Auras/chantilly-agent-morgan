@@ -56,7 +56,7 @@ block content
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg(
                 type="password"
                 x-model="coreConfig.GEMINI_API_KEY"
-                placeholder="Your Gemini API key"
+                :placeholder="hasGeminiKey ? '••••••••••••••••••••• (configured)' : 'Your Gemini API key'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-gray-600.text-white.rounded-lg(
@@ -83,7 +83,7 @@ block content
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
                 x-model="securityKeys.JWT_SECRET"
-                placeholder="Auto-generated if not provided"
+                :placeholder="hasJwtSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
@@ -98,7 +98,7 @@ block content
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
                 x-model="securityKeys.DASHBOARD_SESSION_SECRET"
-                placeholder="Auto-generated if not provided"
+                :placeholder="hasDashboardSecret ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
@@ -113,7 +113,7 @@ block content
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
                 x-model="securityKeys.CREDENTIAL_ENCRYPTION_KEY"
-                placeholder="Auto-generated if not provided"
+                :placeholder="hasEncryptionKey ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
@@ -632,15 +632,19 @@ block content
       return {
         rbacProvider: '#{config.rbacProvider || "bitrix24"}',
         coreConfig: {
-          AGENT_NAME: '#{config.AGENT_NAME || ""}',
+          AGENT_NAME: '#{config.AGENT_NAME || "Clementine"}',
           GOOGLE_CLOUD_PROJECT: '#{config.GOOGLE_CLOUD_PROJECT || ""}',
           GEMINI_API_KEY: ''
         },
+        hasGeminiKey: #{!!config.GEMINI_API_KEY},
         securityKeys: {
           JWT_SECRET: '',
           DASHBOARD_SESSION_SECRET: '',
           CREDENTIAL_ENCRYPTION_KEY: ''
         },
+        hasJwtSecret: #{!!config.JWT_SECRET},
+        hasDashboardSecret: #{!!config.DASHBOARD_SESSION_SECRET},
+        hasEncryptionKey: #{!!config.CREDENTIAL_ENCRYPTION_KEY},
         geminiConfig: {
           GEMINI_MODEL: '#{config.GEMINI_MODEL || "gemini-2.5-pro"}',
           VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || "us-central1"}'

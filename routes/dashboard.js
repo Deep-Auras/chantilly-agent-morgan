@@ -63,10 +63,20 @@ router.use((req, res, next) => {
 router.use(verifyToken);
 router.use(validateCSRF);
 
-// Make user available to all views
-router.use((req, res, next) => {
+// Make user and dynamic agent name available to all views
+router.use(async (req, res, next) => {
   res.locals.user = req.user;
-  res.locals.agentName = process.env.AGENT_NAME || 'Default';
+
+  // Load agent name from database config (falls back to env var, then default)
+  try {
+    const configManager = await getConfigManager();
+    const config = await configManager.get('config');
+    res.locals.agentName = config?.AGENT_NAME || process.env.AGENT_NAME || 'Clementine';
+  } catch (error) {
+    // Fallback to env var or default if config loading fails
+    res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
+  }
+
   next();
 });
 
