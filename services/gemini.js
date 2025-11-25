@@ -1,4 +1,4 @@
-const { getGeminiModel, getGeminiClient, createCustomModel, extractGeminiText } = require('../config/gemini');
+const { getGeminiModel, getGeminiClient, getGeminiModelName, createCustomModel, extractGeminiText } = require('../config/gemini');
 const config = require('../config/env');
 const { getPromptsModel } = require('../models/prompts');
 const { getSettingsModel } = require('../models/settings');
@@ -312,7 +312,7 @@ class GeminiService {
 
         try {
           const result = await client.models.generateContent({
-            model: config.GEMINI_MODEL,
+            model: getGeminiModelName(),
             contents: contents,
             config: {
               systemInstruction: sanitizedSystemPrompt
@@ -479,7 +479,7 @@ class GeminiService {
       };
 
       const requestConfig = {
-        model: config.GEMINI_MODEL,
+        model: getGeminiModelName(),
         contents: contents,
         config: {
           tools: [{
@@ -521,11 +521,11 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         requestConfig.config.systemInstruction = enhancedSystemInstruction;
       }
 
-      logger.info(`Sending request to ${config.GEMINI_MODEL}`, {
+      logger.info(`Sending request to ${getGeminiModelName()}`, {
         hasTools: !!requestConfig.config?.tools,
         toolCount: toolDeclarations.length,
         hasSystemInstruction: !!systemInstruction,
-        model: config.GEMINI_MODEL,
+        model: getGeminiModelName(),
         toolDeclarations: JSON.stringify(toolDeclarations, null, 2),
         requestStructure: {
           hasModel: !!requestConfig.model,
@@ -759,7 +759,7 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
       }
 
       const finalRequestConfig = {
-        model: config.GEMINI_MODEL,
+        model: getGeminiModelName(),
         contents: [
           {
             role: 'user',
@@ -1414,7 +1414,7 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
       } = options;
 
       const requestConfig = {
-        model: config.GEMINI_MODEL,
+        model: getGeminiModelName(),
         contents: [{
           role: 'user',
           parts: [{ text: prompt }]

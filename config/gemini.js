@@ -8,7 +8,7 @@ let geminiModelName;
 
 /**
  * Load Gemini model configuration from Firestore
- * Falls back to env var if Firestore not available or no config set
+ * NO FALLBACK - Database-driven only per user requirement
  */
 async function loadGeminiModelConfig() {
   if (geminiModelName) {
@@ -20,21 +20,21 @@ async function loadGeminiModelConfig() {
     const db = getFirestore();
     const configDoc = await db.collection('agent').doc('config').get();
 
-    if (configDoc.exists && configDoc.data().geminiModel) {
-      geminiModelName = configDoc.data().geminiModel;
+    if (configDoc.exists && configDoc.data().GEMINI_MODEL) {
+      geminiModelName = configDoc.data().GEMINI_MODEL;
       logger.info('Loaded Gemini model from Firestore', { model: geminiModelName });
       return geminiModelName;
     }
-  } catch (error) {
-    logger.warn('Failed to load Gemini model from Firestore, using default', {
-      error: error.message
-    });
-  }
 
-  // Fallback to env var default
-  geminiModelName = config.GEMINI_MODEL;
-  logger.info('Using default Gemini model from env', { model: geminiModelName });
-  return geminiModelName;
+    // NO CONFIG FOUND - This is an error state
+    throw new Error('GEMINI_MODEL not found in Firestore agent/config. Please configure via dashboard.');
+  } catch (error) {
+    logger.error('CRITICAL: Failed to load Gemini model from Firestore', {
+      error: error.message,
+      note: 'Configure GEMINI_MODEL in dashboard Configuration page'
+    });
+    throw error;
+  }
 }
 
 async function initializeGemini() {
