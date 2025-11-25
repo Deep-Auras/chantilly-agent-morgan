@@ -239,15 +239,19 @@ router.get('/knowledge', async (req, res) => {
     const rawEntries = await kb.getAllKnowledge({ enabled: null });
 
     // Ensure all entries have required fields with defaults
+    // CRITICAL: Convert Firestore timestamps to strings for JSON serialization
+    // CRITICAL: Truncate content for client-side (only needed for search, not display)
     const entries = rawEntries.map(entry => ({
       id: entry.id,
       title: entry.title || 'Untitled',
-      content: entry.content || '',
+      content: (entry.content || '').substring(0, 500), // Truncate to 500 chars for search
       category: entry.category || 'general',
       priority: entry.priority || 0,
-      tags: entry.tags || [],
+      tags: Array.isArray(entry.tags) ? entry.tags : [],
       enabled: entry.enabled !== false,
-      lastUpdated: entry.lastUpdated
+      lastUpdated: entry.lastUpdated?.toDate ? entry.lastUpdated.toDate().toISOString() :
+                   entry.lastUpdated instanceof Date ? entry.lastUpdated.toISOString() :
+                   entry.lastUpdated || new Date().toISOString()
     }));
 
     const categories = await kb.getCategories();
