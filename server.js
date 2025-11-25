@@ -85,7 +85,7 @@ app.use(helmet({
     directives: {
       defaultSrc: ['\'self\''],
       styleSrc: ['\'self\'', '\'unsafe-inline\'', 'https://cdn.tailwindcss.com'],
-      scriptSrc: ['\'self\'', '\'unsafe-eval\'', 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'],
+      scriptSrc: ['\'self\'', '\'unsafe-eval\'', '\'unsafe-inline\'', 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'],
       imgSrc: ['\'self\'', 'data:', 'https:']
     }
   },
