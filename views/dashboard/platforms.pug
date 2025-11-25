@@ -238,6 +238,8 @@ block content
           try {
             const updates = this[platformId.replace('-', '')];
 
+            console.log('Saving platform:', platformId, 'with updates:', updates);
+
             const response = await fetch(`/dashboard/platforms/${platformId}`, {
               method: 'POST',
               headers: {
@@ -247,13 +249,21 @@ block content
               body: JSON.stringify(updates)
             });
 
+            console.log('Response status:', response.status);
+
             if (response.ok) {
+              const data = await response.json();
+              console.log('Save successful:', data);
+              alert('Configuration saved successfully!');
               window.location.reload();
             } else {
-              console.error(`Failed to update ${platformId} configuration`);
+              const error = await response.json();
+              console.error(`Failed to update ${platformId} configuration:`, error);
+              alert(`Error: ${error.error || 'Failed to save configuration'}`);
             }
           } catch (error) {
             console.error(`Error updating ${platformId}:`, error);
+            alert(`Error: ${error.message}`);
           }
         }
       }
