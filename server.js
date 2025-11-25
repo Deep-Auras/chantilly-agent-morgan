@@ -598,6 +598,16 @@ process.on('SIGTERM', async () => {
       logger.debug('Asana service cleanup skipped', { reason: error.message });
     }
 
+    // 6. Cleanup Chat service SSE connections (prevent memory leaks)
+    try {
+      const { ChatService } = require('./services/chatService');
+      ChatService.cleanup();
+      logger.info('Chat service SSE connections cleaned up');
+    } catch (error) {
+      // Chat service might not be initialized, that's okay
+      logger.debug('Chat service cleanup skipped', { reason: error.message });
+    }
+
     // 5. Cleanup 3CX services if initialized
     try {
       const { getThreeCXQueueManager } = require('./services/threecx-queue');

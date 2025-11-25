@@ -1285,4 +1285,173 @@ router.put('/api/profile', async (req, res) => {
   }
 });
 
+/**
+ * Chat Page and API Routes
+ */
+
+// Chat page
+router.get('/chat', async (req, res) => {
+  try {
+    res.locals.currentPage = 'chat';
+    res.locals.title = `Chat with ${res.locals.agentName}`;
+
+    res.render('dashboard/chat');
+  } catch (error) {
+    logger.error('Chat page error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load chat');
+    res.redirect('/dashboard');
+  }
+});
+
+// Rate limiter for chat API (100 messages per 15 minutes per user)
+const rateLimit = require('express-rate-limit');
+
+const chatRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  keyGenerator: (req) => req.user.id,
+  handler: (req, res) => {
+    logger.warn('Chat rate limit exceeded', {
+      userId: req.user.id,
+      ip: req.ip
+    });
+    res.status(429).json({
+      error: 'Too many messages. Please wait before sending more.'
+    });
+  }
+});
+
+// Get or create conversation
+router.get('/api/chat/conversation', async (req, res) => {
+  try {
+    const { getChatService } = require('../services/chatService');
+    const chatService = await require('../services/chatService').initializeChatService();
+
+    const conversation = await chatService.getOrCreateConversation(req.user.id);
+
+    res.json({
+      conversationId: conversation.id,
+      messageCount: conversation.messageCount || 0
+    });
+  } catch (error) {
+    logger.error('Failed to get conversation', {
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ error: 'Failed to load conversation' });
+  }
+});
+
+// Get conversation messages
+router.get('/api/chat/messages', async (req, res) => {
+  try {
+    const { conversationId, after } = req.query;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId required' });
+    }
+
+    const { getChatService } = require('../services/chatService');
+    const chatService = await require('../services/chatService').initializeChatService();
+
+    let messages = await chatService.getHistory(conversationId);
+
+    // Filter messages after timestamp if provided
+    if (after) {
+      const afterTimestamp = parseInt(after);
+      messages = messages.filter(msg => {
+        const msgTime = msg.timestamp?._seconds || msg.timestamp?.seconds || 0;
+        return msgTime > afterTimestamp;
+      });
+    }
+
+    res.json({ messages });
+  } catch (error) {
+    logger.error('Failed to get messages', {
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ error: 'Failed to load messages' });
+  }
+});
+
+// Stream AI response (SSE endpoint)
+router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
+  try {
+    const { message, conversationId } = req.body;
+
+    // SECURITY: Validate input
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'Invalid message' });
+    }
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId required' });
+    }
+
+    if (message.length > 10000) {
+      return res.status(400).json({ error: 'Message too long (max 10000 characters)' });
+    }
+
+    const { getChatService } = require('../services/chatService');
+    const chatService = await require('../services/chatService').initializeChatService();
+
+    // Stream response via SSE
+    await chatService.streamResponse(res, req.user.id, message, conversationId);
+
+  } catch (error) {
+    logger.error('Chat stream failed', {
+      userId: req.user.id,
+      error: error.message,
+      stack: error.stack
+    });
+
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate response' });
+    }
+  }
+});
+
+// Clear conversation history
+router.post('/api/chat/clear', async (req, res) => {
+  try {
+    const { conversationId } = req.body;
+
+    if (!conversationId) {
+      return res.status(400).json({ error: 'conversationId required' });
+    }
+
+    const { getChatService } = require('../services/chatService');
+    const chatService = await require('../services/chatService').initializeChatService();
+
+    await chatService.clearHistory(conversationId);
+
+    // Audit log
+    const db = getFirestore();
+    await db.collection('audit-logs').add({
+      action: 'chat_cleared',
+      conversationId,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('Chat conversation cleared', {
+      conversationId,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, message: 'Conversation cleared successfully' });
+  } catch (error) {
+    logger.error('Failed to clear chat', {
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ error: 'Failed to clear conversation' });
+  }
+});
+
 module.exports = router;
