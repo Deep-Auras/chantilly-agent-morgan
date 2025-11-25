@@ -26,6 +26,116 @@ block content
             option(value="bitrix24") Bitrix24
             option(value="google-workspace") Google Workspace
 
+    //- Core Configuration Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Core Configuration
+      form(@submit.prevent="saveCoreConfig")
+        .grid.grid-cols-1.gap-6(class="md:grid-cols-2")
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Agent Name
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="coreConfig.AGENT_NAME"
+              placeholder="morgan"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+            p.text-xs.text-gray-500.mt-1 Unique identifier for this agent instance
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Google Cloud Project ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="coreConfig.GOOGLE_CLOUD_PROJECT"
+              placeholder="your-project-id"
+              class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            )
+
+          div(class="md:col-span-2")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Gemini API Key
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg(
+                type="password"
+                x-model="coreConfig.GEMINI_API_KEY"
+                placeholder="Your Gemini API key"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-gray-600.text-white.rounded-lg(
+                type="button"
+                @click="window.open('https://aistudio.google.com/app/apikey', '_blank')"
+                class="hover:bg-gray-700"
+              ) Get Key
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Core Configuration
+
+    //- Security Keys Section
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h2.text-xl.font-semibold.text-gray-900.mb-4 Security Keys
+      p.text-sm.text-gray-600.mb-4 Manage encryption keys and secrets for authentication and security
+      form(@submit.prevent="saveSecurityKeys")
+        .grid.grid-cols-1.gap-6
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 JWT Secret
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
+                type="password"
+                x-model="securityKeys.JWT_SECRET"
+                placeholder="Auto-generated if not provided"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-green-600.text-white.rounded-lg(
+                type="button"
+                @click="generateSecret('JWT_SECRET')"
+                class="hover:bg-green-700"
+              ) Generate
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Dashboard Session Secret
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
+                type="password"
+                x-model="securityKeys.DASHBOARD_SESSION_SECRET"
+                placeholder="Auto-generated if not provided"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-green-600.text-white.rounded-lg(
+                type="button"
+                @click="generateSecret('DASHBOARD_SESSION_SECRET')"
+                class="hover:bg-green-700"
+              ) Generate
+
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Credential Encryption Key
+            .flex.gap-2
+              input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
+                type="password"
+                x-model="securityKeys.CREDENTIAL_ENCRYPTION_KEY"
+                placeholder="Auto-generated if not provided"
+                class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              )
+              button.px-4.py-2.bg-green-600.text-white.rounded-lg(
+                type="button"
+                @click="generateSecret('CREDENTIAL_ENCRYPTION_KEY')"
+                class="hover:bg-green-700"
+              ) Generate
+
+          .bg-yellow-50.border.border-yellow-200.rounded-lg.p-4
+            .flex.items-start.gap-2
+              svg.w-5.h-5.text-yellow-600.flex-shrink-0.mt-0.5(fill="currentColor" viewBox="0 0 20 20")
+                path(d="M10 18a8 8 0 100-16 8 8 0 000 16zM9 9a1 1 0 012 0v4a1 1 0 11-2 0V9zm1-5a1 1 0 100 2 1 1 0 000-2z")
+              div
+                p.text-sm.font-medium.text-yellow-800 Warning: Changing these keys will invalidate existing sessions and credentials
+                p.text-xs.text-yellow-700.mt-1 Users will need to re-authenticate and platform credentials may need to be re-entered
+
+        .mt-6.flex.justify-end
+          button.px-6.py-2.bg-blue-600.text-white.rounded-lg.transition-colors(
+            type="submit"
+            class="hover:bg-blue-700"
+          ) Save Security Keys
+
     //- Gemini Configuration Section
     .bg-white.rounded-lg.shadow.p-6.mb-6
       h2.text-xl.font-semibold.text-gray-900.mb-4 Gemini AI Configuration
@@ -521,6 +631,16 @@ block content
     function configManager() {
       return {
         rbacProvider: '#{config.rbacProvider || "bitrix24"}',
+        coreConfig: {
+          AGENT_NAME: '#{config.AGENT_NAME || ""}',
+          GOOGLE_CLOUD_PROJECT: '#{config.GOOGLE_CLOUD_PROJECT || ""}',
+          GEMINI_API_KEY: ''
+        },
+        securityKeys: {
+          JWT_SECRET: '',
+          DASHBOARD_SESSION_SECRET: '',
+          CREDENTIAL_ENCRYPTION_KEY: ''
+        },
         geminiConfig: {
           GEMINI_MODEL: '#{config.GEMINI_MODEL || "gemini-2.5-pro"}',
           VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || "us-central1"}'
@@ -573,6 +693,14 @@ block content
           api: #{rateLimits.api || 60}
         },
 
+        generateSecret(fieldName) {
+          // Generate a cryptographically secure random secret (64 bytes = 128 hex chars)
+          const array = new Uint8Array(64);
+          crypto.getRandomValues(array);
+          const secret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+          this.securityKeys[fieldName] = secret;
+        },
+
         async saveRbacProvider() {
           try {
             const response = await fetch('/dashboard/config/update', {
@@ -594,6 +722,60 @@ block content
             }
           } catch (error) {
             console.error('Error updating RBAC provider:', error);
+          }
+        },
+
+        async saveCoreConfig() {
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.coreConfig
+              })
+            });
+
+            if (response.ok) {
+              alert('Core configuration saved successfully!');
+              window.location.reload();
+            } else {
+              console.error('Failed to update core configuration');
+            }
+          } catch (error) {
+            console.error('Error updating core configuration:', error);
+          }
+        },
+
+        async saveSecurityKeys() {
+          if (!confirm('WARNING: Changing security keys will invalidate all existing sessions and encrypted credentials. Users will need to re-authenticate. Continue?')) {
+            return;
+          }
+
+          try {
+            const response = await fetch('/dashboard/config/update', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                section: 'config',
+                updates: this.securityKeys
+              })
+            });
+
+            if (response.ok) {
+              alert('Security keys updated successfully! You will be logged out.');
+              window.location.href = '/auth/login';
+            } else {
+              console.error('Failed to update security keys');
+            }
+          } catch (error) {
+            console.error('Error updating security keys:', error);
           }
         },
 
