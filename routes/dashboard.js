@@ -65,6 +65,12 @@ router.use(validateCSRF);
 
 // Make user and dynamic agent name available to all views
 router.use(async (req, res, next) => {
+  logger.info('MIDDLEWARE - Setting res.locals.user', {
+    hasReqUser: !!req.user,
+    reqUserId: req.user?.id,
+    path: req.path
+  });
+
   res.locals.user = req.user;
 
   // Load agent name from database config (falls back to env var, then default)
@@ -76,6 +82,11 @@ router.use(async (req, res, next) => {
     // Fallback to env var or default if config loading fails
     res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
   }
+
+  logger.info('MIDDLEWARE - About to call next()', {
+    hasReqUser: !!req.user,
+    reqUserId: req.user?.id
+  });
 
   next();
 });
