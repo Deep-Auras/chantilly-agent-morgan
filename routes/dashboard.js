@@ -777,11 +777,8 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
       }
     }
 
-    if (platformId === 'google-chat' && updates.enabled) {
-      if (!updates.projectId) {
-        return res.status(400).json({ error: 'Project ID required for Google Chat' });
-      }
-    }
+    // Google Chat uses ADC (Application Default Credentials) - no validation needed
+    // Project ID comes from Core Configuration (stored in Firestore config collection)
 
     if (platformId === 'asana' && updates.enabled) {
       if (!updates.accessToken || !updates.workspaceGid) {
@@ -814,13 +811,7 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
       );
     }
 
-    if (updates.serviceAccount && platformId === 'google-chat') {
-      updates.serviceAccount = await configManager.updateCredential(
-        'google_chat_service_account',
-        updates.serviceAccount,
-        req.user.id
-      );
-    }
+    // Google Chat uses ADC - no credentials to encrypt
 
     if (updates.appPassword && platformId === 'bluesky') {
       updates.appPassword = await configManager.updateCredential(
