@@ -6,7 +6,7 @@ block content
     .flex.flex-col.gap-4(class="md:flex-row md:items-center md:justify-between")
       div
         h1.text-3xl.font-bold.text-gray-900 Platform Integrations
-        p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, and Asana integrations
+        p.text-gray-600.mt-2 Configure Bitrix24, Google Chat, Asana, and Bluesky integrations
 
   //- Platform Cards (Alpine.js reactive)
   div(x-data="platformsManager()")
@@ -138,6 +138,56 @@ block content
             class="hover:bg-pink-700"
           ) Save Asana Config
 
+      //- Bluesky Card
+      .bg-white.rounded-lg.shadow.p-6
+        .flex.items-center.gap-3.mb-4
+          .w-12.h-12.bg-sky-100.rounded-lg.flex.items-center.justify-center
+            svg.w-6.h-6.text-sky-600(fill="currentColor" viewBox="0 0 24 24")
+              path(d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5")
+          div
+            h2.text-xl.font-semibold.text-gray-900 Bluesky
+            p.text-sm.text-gray-600 Decentralized social networking
+
+        .space-y-4
+          div
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Enable Integration
+            label.relative.inline-flex.items-center.cursor-pointer
+              input.sr-only.peer(
+                type="checkbox"
+                x-model="bluesky.enabled"
+              )
+              .w-11.h-6.bg-gray-200.rounded-full.peer(class="peer-checked:bg-blue-600")
+                .absolute.w-5.h-5.bg-white.rounded-full.transition-all(class="left-0.5 top-0.5 peer-checked:translate-x-5")
+
+          div(x-show="bluesky.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Handle
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bluesky.handle"
+              placeholder="yourusername.bsky.social"
+            )
+
+          div(x-show="bluesky.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 App Password
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="password"
+              x-model="bluesky.appPassword"
+              placeholder="Your Bluesky app-specific password"
+            )
+
+          div(x-show="bluesky.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Service URL
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bluesky.serviceUrl"
+              placeholder="https://bsky.social"
+            )
+
+          button.w-full.px-4.py-2.bg-sky-600.text-white.rounded-lg.transition-colors(
+            @click="savePlatform('bluesky')"
+            class="hover:bg-sky-700"
+          ) Save Bluesky Config
+
   //- Alpine.js Platforms Manager
   script.
     function platformsManager() {
@@ -156,6 +206,12 @@ block content
           enabled: #{asana.enabled || false},
           accessToken: '',
           workspaceGid: '#{asana.workspaceGid || ""}'
+        },
+        bluesky: {
+          enabled: #{bluesky.enabled || false},
+          handle: '#{bluesky.handle || ""}',
+          appPassword: '',
+          serviceUrl: '#{bluesky.serviceUrl || "https://bsky.social"}'
         },
 
         async savePlatform(platformId) {

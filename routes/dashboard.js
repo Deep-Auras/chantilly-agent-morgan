@@ -199,6 +199,7 @@ router.get('/platforms', requireAdmin, async (req, res) => {
     const bitrix24Config = await configManager.getPlatform('bitrix24');
     const googleChatConfig = await configManager.getPlatform('google-chat');
     const asanaConfig = await configManager.getPlatform('asana');
+    const blueskyConfig = await configManager.getPlatform('bluesky');
 
     res.locals.currentPage = 'platforms';
     res.locals.title = 'Platform Integrations';
@@ -206,7 +207,8 @@ router.get('/platforms', requireAdmin, async (req, res) => {
     res.render('dashboard/platforms', {
       bitrix24: bitrix24Config || {},
       googleChat: googleChatConfig || {},
-      asana: asanaConfig || {}
+      asana: asanaConfig || {},
+      bluesky: blueskyConfig || {}
     });
   } catch (error) {
     logger.error('Platforms dashboard error', {
@@ -260,6 +262,7 @@ router.get('/tools', async (req, res) => {
     const configManager = await getConfigManager();
     const config = await configManager.get('config');
     const { getToolRegistry } = require('../lib/toolLoader');
+    const { TOOL_ACCESS_CONTROL } = require('../config/toolAccessControl');
     const toolRegistry = getToolRegistry();
 
     const tools = toolRegistry.getAllTools();
@@ -275,7 +278,8 @@ router.get('/tools', async (req, res) => {
         category: tool.category,
         enabled: tool.enabled,
         priority: tool.priority || 0
-      }))
+      })),
+      toolAccess: TOOL_ACCESS_CONTROL
     });
   } catch (error) {
     logger.error('Tools dashboard error', {
@@ -475,6 +479,179 @@ router.post('/api/knowledge', requireAdmin, async (req, res) => {
 });
 
 /**
+ * Tool Management API Routes
+ */
+
+// Toggle tool enabled/disabled state
+router.post('/api/tools/:toolName/toggle', requireAdmin, async (req, res) => {
+  try {
+    const { toolName } = req.params;
+    const { enabled } = req.body;
+
+    // Validate input
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: 'enabled must be a boolean' });
+    }
+
+    const { getToolRegistry } = require('../lib/toolLoader');
+    const toolRegistry = getToolRegistry();
+    const tool = toolRegistry.getTool(toolName);
+
+    if (!tool) {
+      return res.status(404).json({ error: 'Tool not found' });
+    }
+
+    // Update tool state
+    tool.setEnabled(enabled);
+
+    // Audit log
+    const db = getFirestore();
+    await db.collection('audit-logs').add({
+      action: 'tool_toggle',
+      toolName,
+      enabled,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('Tool state toggled', {
+      toolName,
+      enabled,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, enabled });
+  } catch (error) {
+    logger.error('Failed to toggle tool', {
+      error: error.message,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to toggle tool' });
+  }
+});
+
+// Update tool access permissions
+router.post('/api/tools/:toolName/access', requireAdmin, async (req, res) => {
+  try {
+    const { toolName } = req.params;
+    const { roles } = req.body;
+
+    // Validate input
+    if (!Array.isArray(roles)) {
+      return res.status(400).json({ error: 'roles must be an array' });
+    }
+
+    // Validate roles
+    const validRoles = ['user', 'admin'];
+    const invalidRoles = roles.filter(r => !validRoles.includes(r));
+    if (invalidRoles.length > 0) {
+      return res.status(400).json({ error: `Invalid roles: ${invalidRoles.join(', ')}` });
+    }
+
+    // IMPORTANT: This updates in-memory config only
+    // For persistence, we'd need to write to a config file or Firestore
+    // For now, changes persist until server restart
+    const { TOOL_ACCESS_CONTROL } = require('../config/toolAccessControl');
+    TOOL_ACCESS_CONTROL[toolName] = roles;
+
+    // Audit log
+    const db = getFirestore();
+    await db.collection('audit-logs').add({
+      action: 'tool_access_update',
+      toolName,
+      roles,
+      userId: req.user.id,
+      username: req.user.username,
+      timestamp: new Date()
+    });
+
+    logger.info('Tool access updated', {
+      toolName,
+      roles,
+      userId: req.user.id
+    });
+
+    res.json({ success: true, roles });
+  } catch (error) {
+    logger.error('Failed to update tool access', {
+      error: error.message,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to update tool access' });
+  }
+});
+
+/**
+ * Dashboard Statistics API
+ * GET /api/dashboard/stats
+ */
+router.get('/api/dashboard/stats', async (req, res) => {
+  try {
+    const { getKnowledgeBase } = require('../services/knowledgeBase');
+    const { getToolRegistry } = require('../lib/toolLoader');
+    const db = getFirestore();
+
+    // Get Knowledge Base stats
+    const kb = getKnowledgeBase();
+    const kbStats = await kb.getStats();
+
+    // Get Tools count
+    const toolRegistry = getToolRegistry();
+    const tools = toolRegistry.getAllTools();
+
+    // Get Task Templates count
+    const templatesSnapshot = await db.collection('task-templates').get();
+
+    res.json({
+      agentStatus: 'Active',
+      kbCount: kbStats.totalEntries || 0,
+      toolsCount: tools.length || 0,
+      templatesCount: templatesSnapshot.size || 0
+    });
+  } catch (error) {
+    logger.error('Dashboard stats API error', {
+      error: error.message,
+      userId: req.user?.id
+    });
+    res.status(500).json({ error: 'Failed to load dashboard stats' });
+  }
+});
+
+/**
+ * Dashboard Activity API (Stub)
+ * GET /api/dashboard/activity
+ */
+router.get('/api/dashboard/activity', async (req, res) => {
+  try {
+    const db = getFirestore();
+
+    // Get recent audit logs
+    const logsSnapshot = await db.collection('audit-logs')
+      .orderBy('timestamp', 'desc')
+      .limit(10)
+      .get();
+
+    const activities = logsSnapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        message: `${data.action} by ${data.username || 'System'}`,
+        timestamp: data.timestamp?.toDate?.()?.toLocaleString() || 'Unknown'
+      };
+    });
+
+    res.json({ activities });
+  } catch (error) {
+    logger.error('Dashboard activity API error', {
+      error: error.message,
+      userId: req.user?.id
+    });
+    res.json({ activities: [] }); // Return empty array on error
+  }
+});
+
+/**
  * Update Platform Configuration
  * POST /dashboard/platforms/:platformId
  */
@@ -484,7 +661,7 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     const updates = req.body;
 
     // Validate platform ID (whitelist)
-    const validPlatforms = ['bitrix24', 'google-chat', 'asana'];
+    const validPlatforms = ['bitrix24', 'google-chat', 'asana', 'bluesky'];
     if (!validPlatforms.includes(platformId)) {
       return res.status(400).json({ error: 'Invalid platform ID' });
     }
@@ -505,6 +682,12 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
     if (platformId === 'asana' && updates.enabled) {
       if (!updates.accessToken || !updates.workspaceGid) {
         return res.status(400).json({ error: 'Access token and workspace GID required for Asana' });
+      }
+    }
+
+    if (platformId === 'bluesky' && updates.enabled) {
+      if (!updates.handle || !updates.appPassword) {
+        return res.status(400).json({ error: 'Handle and app password required for Bluesky' });
       }
     }
 
@@ -531,6 +714,14 @@ router.post('/platforms/:platformId', requireAdmin, async (req, res) => {
       updates.serviceAccount = await configManager.updateCredential(
         'google_chat_service_account',
         updates.serviceAccount,
+        req.user.id
+      );
+    }
+
+    if (updates.appPassword && platformId === 'bluesky') {
+      updates.appPassword = await configManager.updateCredential(
+        'bluesky_app_password',
+        updates.appPassword,
         req.user.id
       );
     }
