@@ -1383,24 +1383,36 @@ router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
   try {
     const { message, conversationId } = req.body;
 
+    logger.info('Chat stream request received', {
+      userId: req.user.id,
+      conversationId,
+      messageLength: message?.length
+    });
+
     // SECURITY: Validate input
     if (!message || typeof message !== 'string') {
+      logger.warn('Invalid message type', { userId: req.user.id, messageType: typeof message });
       return res.status(400).json({ error: 'Invalid message' });
     }
 
     if (!conversationId) {
+      logger.warn('Missing conversationId', { userId: req.user.id });
       return res.status(400).json({ error: 'conversationId required' });
     }
 
     if (message.length > 10000) {
+      logger.warn('Message too long', { userId: req.user.id, length: message.length });
       return res.status(400).json({ error: 'Message too long (max 10000 characters)' });
     }
 
-    const { getChatService } = require('../services/chatService');
+    logger.info('Initializing chat service', { userId: req.user.id });
     const chatService = await require('../services/chatService').initializeChatService();
 
+    logger.info('Starting SSE stream', { userId: req.user.id, conversationId });
     // Stream response via SSE
     await chatService.streamResponse(res, req.user.id, message, conversationId);
+
+    logger.info('SSE stream completed', { userId: req.user.id });
 
   } catch (error) {
     logger.error('Chat stream failed', {
