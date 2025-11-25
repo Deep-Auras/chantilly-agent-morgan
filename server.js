@@ -24,15 +24,10 @@ const workerRoutes = require('./routes/worker');
 const adminRoutes = require('./routes/admin');
 const dashboardRoutes = require('./routes/dashboard');
 
-// Conditional platform integrations
-const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
-const ENABLE_GOOGLE_CHAT = process.env.ENABLE_GOOGLE_CHAT_INTEGRATION === 'true';
-const ENABLE_ASANA = process.env.ENABLE_ASANA_INTEGRATION === 'true';
-
-// Load platform-specific routes conditionally
-const bitrixWebhook = ENABLE_BITRIX24 ? require('./webhooks/bitrix') : null;
-const googleChatRoutes = ENABLE_GOOGLE_CHAT ? require('./routes/googleChat') : null;
-const asanaRoutes = ENABLE_ASANA ? require('./routes/asana') : null;
+// ALWAYS load all platform routes (enabled status determined by database, not env vars)
+const bitrixWebhook = require('./webhooks/bitrix');
+const googleChatRoutes = require('./routes/googleChat');
+const asanaRoutes = require('./routes/asana');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -224,48 +219,55 @@ async function initializeServices() {
     hasErrors = true;
   }
 
-  // Try Bitrix24 queue manager initialization (conditional)
-  if (ENABLE_BITRIX24) {
-    try {
+  // Load platform configurations from database
+  const { getConfigManager } = require('./services/configManager');
+  const configManager = await getConfigManager();
+
+  // Try Bitrix24 queue manager initialization (check database)
+  try {
+    const bitrix24Config = await configManager.getPlatform('bitrix24');
+    if (bitrix24Config?.enabled) {
       const { initializeQueue } = require('./services/bitrix24-queue');
       await initializeQueue();
       logger.info('Bitrix24 queue manager initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Bitrix24 queue manager', error);
-      hasErrors = true;
+    } else {
+      logger.info('Bitrix24 integration disabled in database - skipping queue initialization');
     }
-  } else {
-    logger.info('Bitrix24 integration disabled - skipping queue initialization');
+  } catch (error) {
+    logger.error('Failed to initialize Bitrix24 queue manager', error);
+    hasErrors = true;
   }
 
-  // Try Google Chat service initialization (conditional)
-  if (ENABLE_GOOGLE_CHAT) {
-    try {
+  // Try Google Chat service initialization (check database)
+  try {
+    const googleChatConfig = await configManager.getPlatform('google-chat');
+    if (googleChatConfig?.enabled) {
       const { getGoogleChatService } = require('./services/googleChatService');
       const chatService = getGoogleChatService();
       await chatService.initialize();
-      logger.info('Google Chat service initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Google Chat service', error);
-      hasErrors = true;
+      logger.info('Google Chat service initialized (enabled in database)');
+    } else {
+      logger.info('Google Chat integration disabled in database - skipping initialization');
     }
-  } else {
-    logger.info('Google Chat integration disabled - skipping initialization');
+  } catch (error) {
+    logger.error('Failed to initialize Google Chat service', error);
+    hasErrors = true;
   }
 
-  // Try Asana service initialization (conditional)
-  if (ENABLE_ASANA) {
-    try {
+  // Try Asana service initialization (check database)
+  try {
+    const asanaConfig = await configManager.getPlatform('asana');
+    if (asanaConfig?.enabled) {
       const { getAsanaService } = require('./services/asanaService');
       const asanaService = getAsanaService();
       await asanaService.initialize();
-      logger.info('Asana service initialized');
-    } catch (error) {
-      logger.error('Failed to initialize Asana service', error);
-      hasErrors = true;
+      logger.info('Asana service initialized (enabled in database)');
+    } else {
+      logger.info('Asana integration disabled in database - skipping initialization');
     }
-  } else {
-    logger.info('Asana integration disabled - skipping initialization');
+  } catch (error) {
+    logger.error('Failed to initialize Asana service', error);
+    hasErrors = true;
   }
 
   // Try 3CX authentication service initialization (optional)
@@ -385,32 +387,26 @@ app.use('/knowledge', knowledgeRoutes);
 // Worker routes for Cloud Tasks background processing
 app.use('/worker', workerRoutes);
 
-// Platform-specific routes (conditional)
-if (ENABLE_GOOGLE_CHAT && googleChatRoutes) {
-  app.use('/', googleChatRoutes);
-  logger.info('Google Chat routes registered');
-}
+// Platform-specific routes (ALWAYS registered - handlers check database for enabled status)
+app.use('/', googleChatRoutes);
+logger.info('Google Chat routes registered at /webhook/google-chat');
 
-if (ENABLE_ASANA && asanaRoutes) {
-  app.use('/', asanaRoutes);
-  logger.info('Asana routes registered');
-}
+app.use('/', asanaRoutes);
+logger.info('Asana routes registered');
 
-if (ENABLE_BITRIX24 && bitrixWebhook) {
-  // Bitrix24 webhook endpoint with rate limiting
-  const webhookLimiter = require('express-rate-limit')({
-    windowMs: 60 * 1000,
-    max: 100,
-    keyGenerator: (req) => {
-      const ip = req.ip || req.connection.remoteAddress || 'unknown';
-      const signature = req.headers['x-bitrix24-signature'] || '';
-      return `webhook-${ip}-${signature.substring(0, 10)}`;
-    }
-  });
+// Bitrix24 webhook endpoint with rate limiting
+const webhookLimiter = require('express-rate-limit')({
+  windowMs: 60 * 1000,
+  max: 100,
+  keyGenerator: (req) => {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const signature = req.headers['x-bitrix24-signature'] || '';
+    return `webhook-${ip}-${signature.substring(0, 10)}`;
+  }
+});
 
-  app.all('/webhook/bitrix24', webhookLimiter, bitrixWebhook);
-  logger.info('Bitrix24 routes registered');
-}
+app.all('/webhook/bitrix24', webhookLimiter, bitrixWebhook);
+logger.info('Bitrix24 routes registered at /webhook/bitrix24');
 
 // 404 handler
 app.use((req, res) => {
@@ -477,17 +473,15 @@ process.on('SIGTERM', async () => {
   try {
     // SECURITY FIX: Clear all intervals and cleanup resources
 
-    // 1. Cleanup Bitrix24 webhook cache (if enabled)
-    if (ENABLE_BITRIX24) {
-      try {
-        const webhookCleanup = require('./webhooks/bitrix').cleanup;
-        if (webhookCleanup) {
-          webhookCleanup();
-          logger.info('Bitrix24 webhook cache cleanup completed');
-        }
-      } catch (error) {
-        logger.error('Bitrix24 webhook cleanup failed', { error: error.message });
+    // 1. Cleanup Bitrix24 webhook cache
+    try {
+      const webhookCleanup = require('./webhooks/bitrix').cleanup;
+      if (webhookCleanup) {
+        webhookCleanup();
+        logger.info('Bitrix24 webhook cache cleanup completed');
       }
+    } catch (error) {
+      logger.error('Bitrix24 webhook cleanup failed', { error: error.message });
     }
 
     // 2. Cleanup GeminiService intervals
@@ -528,18 +522,16 @@ process.on('SIGTERM', async () => {
     }
 
     // 4. Cleanup Google Chat service if initialized (PHASE 16.3: deduplication cleanup)
-    if (ENABLE_GOOGLE_CHAT) {
-      try {
-        const { getGoogleChatService } = require('./services/googleChatService');
-        const chatService = getGoogleChatService();
-        if (chatService && chatService.destroy) {
-          chatService.destroy();
-          logger.info('Google Chat service cleanup completed');
-        }
-      } catch (error) {
-        // Google Chat service might not be initialized, that's okay
-        logger.debug('Google Chat service cleanup skipped', { reason: error.message });
+    try {
+      const { getGoogleChatService } = require('./services/googleChatService');
+      const chatService = getGoogleChatService();
+      if (chatService && chatService.destroy) {
+        chatService.destroy();
+        logger.info('Google Chat service cleanup completed');
       }
+    } catch (error) {
+      // Google Chat service might not be initialized, that's okay
+      logger.debug('Google Chat service cleanup skipped', { reason: error.message });
     }
 
     // 5. Cleanup Asana service if initialized (polling intervals)
