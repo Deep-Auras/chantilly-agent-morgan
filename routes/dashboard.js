@@ -46,18 +46,6 @@ const validateCSRF = (req, res, next) => {
   next();
 };
 
-// CRITICAL DEBUG: Log session state before verifyToken
-router.use((req, res, next) => {
-  logger.info('DASHBOARD - Session state check', {
-    path: req.path,
-    sessionID: req.sessionID,
-    hasSession: !!req.session,
-    hasToken: !!(req.session && req.session.token),
-    hasUser: !!(req.session && req.session.user),
-    cookieHeader: req.headers.cookie ? 'present' : 'missing'
-  });
-  next();
-});
 
 // Apply authentication to all dashboard routes
 router.use(verifyToken);
@@ -65,8 +53,6 @@ router.use(validateCSRF);
 
 // Make user and dynamic agent name available to all views
 router.use(async (req, res, next) => {
-  logger.info(`MIDDLEWARE - Setting res.locals.user: req.user = ${JSON.stringify(req.user)}, path = ${req.path}`);
-
   // Load full user data from Firestore to get profilePicture
   if (req.user && req.user.id) {
     try {
@@ -101,8 +87,6 @@ router.use(async (req, res, next) => {
     // Fallback to env var or default if config loading fails
     res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
   }
-
-  logger.info(`MIDDLEWARE - About to call next(): req.user = ${JSON.stringify(req.user)}`);
 
   next();
 });
@@ -1144,13 +1128,13 @@ router.post('/api/users/:id/unlock', requireAdmin, async (req, res) => {
 
 // Get current user profile
 router.get('/profile', async (req, res) => {
-  // CRITICAL DEBUG: Log full req.user object
-  logger.info(`PROFILE ROUTE - ENTRY: req.user = ${JSON.stringify(req.user)}, sessionID = ${req.sessionID}`);
-
   try {
-    // CRITICAL: Check if req.user exists (set by verifyToken middleware)
+    // Check if req.user exists (set by verifyToken middleware)
     if (!req.user || !req.user.id) {
-      logger.error(`Profile page error: req.user not set. req.user = ${JSON.stringify(req.user)}, sessionID = ${req.sessionID}`);
+      logger.error('Profile page error: req.user not set', {
+        userId: req.user?.id,
+        sessionID: req.sessionID
+      });
       req.flash('error', 'Authentication error. Please log in again.');
       return res.redirect('/auth/login');
     }

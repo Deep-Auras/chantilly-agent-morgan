@@ -63,13 +63,11 @@ class AuthService {
 
   async login(username, password) {
     try {
-      logger.info('AUTH SERVICE - Login attempt', { username });
-
       // Get user from database
       const userDoc = await this.db.collection('users').doc(username).get();
 
       if (!userDoc.exists) {
-        logger.warn('AUTH SERVICE - User not found', { username });
+        logger.warn('User not found', { username });
         return {
           success: false,
           error: 'Invalid credentials'
@@ -77,15 +75,10 @@ class AuthService {
       }
 
       const userData = userDoc.data();
-      logger.info('AUTH SERVICE - User found', {
-        username,
-        locked: userData.locked,
-        failedAttempts: userData.failedAttempts
-      });
 
       // Check if account is locked
       if (userData.locked) {
-        logger.warn('AUTH SERVICE - Account is locked', { username });
+        logger.warn('Account is locked', { username });
         return {
           success: false,
           error: 'Account is locked. Contact administrator.'
@@ -94,14 +87,9 @@ class AuthService {
 
       // Verify password
       const isValid = await bcrypt.compare(password, userData.password);
-      logger.info('AUTH SERVICE - Password verification', {
-        username,
-        isValid,
-        passwordLength: password?.length
-      });
 
       if (!isValid) {
-        logger.warn('AUTH SERVICE - Invalid password', { username });
+        logger.warn('Invalid password', { username });
         // Increment failed attempts
         await this.incrementFailedAttempts(username, userData.failedAttempts);
 

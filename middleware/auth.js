@@ -164,14 +164,6 @@ function sanitizeInput(req, res, next) {
 function verifyToken(req, res, next) {
   // Check session first (for dashboard)
   if (req.session && req.session.token && req.session.user) {
-    logger.info('VERIFY_TOKEN - Checking session token', {
-      path: req.path,
-      method: req.method,
-      sessionID: req.sessionID,
-      hasToken: !!req.session.token,
-      username: req.session.user?.username
-    });
-
     // Verify session token
     jwt.verify(req.session.token, JWT_SECRET, (err, user) => {
       if (err) {
@@ -194,32 +186,17 @@ function verifyToken(req, res, next) {
       }
 
       // Token valid, set req.user
-      logger.info(`VERIFY_TOKEN - Session token valid: user = ${JSON.stringify(user)}`);
       req.user = user;
-      logger.info(`VERIFY_TOKEN - req.user SET: req.user = ${JSON.stringify(req.user)}`);
       return next();
     });
   } else {
     // Fall back to Authorization header (for API)
-    logger.info('VERIFY_TOKEN - No session found, checking Authorization header', {
-      path: req.path,
-      method: req.method,
-      hasSession: !!req.session,
-      hasSessionToken: !!(req.session && req.session.token),
-      hasSessionUser: !!(req.session && req.session.user),
-      sessionID: req.sessionID
-    });
 
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
 
     if (!token) {
       // No token found, redirect to login or return 401
-      logger.warn('VERIFY_TOKEN - No token found', {
-        path: req.path,
-        hasAuthHeader: !!authHeader
-      });
-
       if (req.headers.accept?.includes('text/html')) {
         return res.redirect('/auth/login');
       }
