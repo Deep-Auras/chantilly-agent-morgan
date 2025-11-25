@@ -144,15 +144,13 @@ router.post('/config/update', requireAdmin, async (req, res) => {
     const { section, updates } = req.body;
 
     if (!section || !updates) {
-      req.flash('error', 'Invalid configuration update');
-      return res.redirect('/dashboard/config');
+      return res.status(400).json({ error: 'Invalid configuration update' });
     }
 
     // Validate section name (whitelist)
     const validSections = ['config', 'feature-flags', 'rate-limits', 'rbac'];
     if (!validSections.includes(section)) {
-      req.flash('error', 'Invalid configuration section');
-      return res.redirect('/dashboard/config');
+      return res.status(400).json({ error: 'Invalid configuration section' });
     }
 
     const configManager = await getConfigManager();
@@ -175,15 +173,13 @@ router.post('/config/update', requireAdmin, async (req, res) => {
       keys: Object.keys(updates)
     });
 
-    req.flash('success', 'Configuration updated successfully');
-    res.redirect('/dashboard/config');
+    res.json({ success: true, message: 'Configuration updated successfully' });
   } catch (error) {
     logger.error('Configuration update failed', {
       error: error.message,
       userId: req.user.id
     });
-    req.flash('error', 'Failed to update configuration');
-    res.redirect('/dashboard/config');
+    res.status(500).json({ error: 'Failed to update configuration' });
   }
 });
 
