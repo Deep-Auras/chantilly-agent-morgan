@@ -356,11 +356,11 @@ html(lang="en")
             input#agentName(
               type="text"
               x-model="formData.agentName"
-              placeholder="morgan"
+              placeholder="Clementine"
               @input="validateAgentName()"
               required
             )
-            p.help-text(x-show="!errors.agentName") This will be your agent's identity (e.g., "morgan", "assistant", "bot")
+            p.help-text(x-show="!errors.agentName") This will be your agent's identity (e.g., "Clementine", "assistant", "bot")
             p.error-text(x-show="errors.agentName" x-text="errors.agentName")
 
           .info-box
@@ -404,13 +404,16 @@ html(lang="en")
               required
             )
               option(value="") Select a model...
-              option(value="gemini-2.0-flash-exp") Gemini 2.0 Flash (Experimental) - Fast & Efficient
-              option(value="gemini-2.0-flash-thinking-exp-01-21") Gemini 2.0 Flash Thinking - Extended Reasoning
-              option(value="gemini-exp-1206") Gemini Experimental 1206 - Latest Features
-              option(value="gemini-2.5-pro") Gemini 2.5 Pro - Most Capable
-              option(value="gemini-1.5-pro") Gemini 1.5 Pro - Production Ready
-              option(value="gemini-1.5-flash") Gemini 1.5 Flash - Fast Response
-            p.help-text Choose the model that best fits your needs. Flash models are faster, Pro models are more capable.
+              optgroup(label="Latest Stable (Recommended)")
+              option(value="gemini-3-pro") Gemini 3 Pro - Most Advanced & Powerful
+              option(value="gemini-2.5-pro") Gemini 2.5 Pro - Very Capable
+              option(value="gemini-2.5-flash") Gemini 2.5 Flash - Fast & Efficient
+              option(value="gemini-2.5-flash-lite") Gemini 2.5 Flash Lite - Low Cost
+              optgroup(label="Preview/Experimental")
+              option(value="gemini-3-pro-preview") Gemini 3 Pro Preview - Bleeding Edge
+              option(value="gemini-2.5-flash-preview-09-2025") Gemini 2.5 Flash Preview
+              option(value="gemini-2.5-flash-lite-preview-09-2025") Gemini 2.5 Flash Lite Preview
+            p.help-text Choose the model that best fits your needs. Flash models are faster, Pro models are more capable. Gemini 3 is the latest generation.
             p.error-text(x-show="errors.geminiModel" x-text="errors.geminiModel")
 
           .info-box
@@ -509,7 +512,7 @@ html(lang="en")
             email: '',
             password: '',
             confirmPassword: '',
-            agentName: 'morgan',
+            agentName: 'Clementine',
             geminiApiKey: '',
             geminiModel: ''
           },
