@@ -92,11 +92,23 @@ class GeminiService {
   async processMessage(messageData, eventData) {
     let stopTyping = null;
 
+    // CRITICAL DEBUG: Log entry to detect duplicate processMessage calls
+    const requestId = `${messageData.platform || 'unknown'}-${messageData.messageId || Date.now()}-${Math.random().toString(36).substring(7)}`;
+    logger.info('PROCESS_MESSAGE ENTRY', {
+      requestId,
+      platform: messageData.platform,
+      messageId: messageData.messageId,
+      userId: messageData.userId,
+      messagePreview: messageData.message?.substring(0, 100),
+      timestamp: new Date().toISOString(),
+      stackTrace: new Error().stack.split('\n').slice(2, 5).join(' -> ')
+    });
+
     try {
       // Check if agent should respond based on personality and triggers
       const shouldRespond = await this.shouldAgentRespond(messageData.message, messageData.userId, messageData.messageType);
       if (!shouldRespond) {
-        logger.debug('Agent not responding based on triggers', { messageId: messageData.messageId });
+        logger.debug('Agent not responding based on triggers', { messageId: messageData.messageId, requestId });
         return null;
       }
 
@@ -397,11 +409,19 @@ class GeminiService {
         replyPreview: response.reply.substring(0, 100)
       });
 
+      logger.info('PROCESS_MESSAGE EXIT', {
+        requestId,
+        hasReply: !!response.reply,
+        replyLength: response.reply?.length || 0,
+        toolsUsed: response.toolsUsed?.length || 0
+      });
+
       return response;
     } catch (error) {
       logger.error('Failed to process message with Gemini', {
         error: error.message,
-        messageId: messageData.messageId
+        messageId: messageData.messageId,
+        requestId
       });
       throw error;
     } finally {
@@ -416,20 +436,36 @@ class GeminiService {
     // Initialize or increment tool execution depth
     const currentDepth = (toolExecutionContext.executionDepth || 0) + 1;
     const maxDepth = 5; // Maximum tool execution depth to prevent infinite loops
-    
+
+    const executionId = `exec-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+
+    logger.info('EXECUTE_WITH_TOOLS ENTRY', {
+      executionId,
+      depth: currentDepth,
+      maxDepth,
+      toolCount: tools.length,
+      toolNames: tools.map(t => t.name),
+      messageId: messageData?.messageId,
+      platform: messageData?.platform,
+      stackTrace: new Error().stack.split('\n').slice(2, 5).join(' -> ')
+    });
+
     if (currentDepth > maxDepth) {
       logger.error('Tool execution depth limit exceeded', {
+        executionId,
         currentDepth,
         maxDepth,
         toolNames: tools.map(t => t.name)
       });
       throw new Error(`Maximum tool execution depth exceeded (${currentDepth} > ${maxDepth}). Possible infinite loop detected.`);
     }
-    
+
     // Add depth tracking to context
     toolExecutionContext.executionDepth = currentDepth;
-    
+    toolExecutionContext.executionId = executionId;
+
     logger.info('Tool execution started', {
+      executionId,
       depth: currentDepth,
       maxDepth,
       toolCount: tools.length,
@@ -858,12 +894,20 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         toolsUsed: toolResults.map(t => t.name)
       });
 
+      logger.info('EXECUTE_WITH_TOOLS EXIT', {
+        executionId,
+        depth: currentDepth,
+        hasReply: !!finalText,
+        replyLength: finalText.length,
+        toolsUsedCount: toolResults.length
+      });
+
       return {
         reply: finalText,
         toolsUsed: toolResults.map(t => t.name)
       };
     } catch (error) {
-      logger.error('Failed to execute with tools', error);
+      logger.error('Failed to execute with tools', { executionId, error: error.message, stack: error.stack });
       throw error;
     }
   }
