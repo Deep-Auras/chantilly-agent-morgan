@@ -17,11 +17,8 @@
  */
 
 const { getFirestore, getFieldValue } = require('../config/firestore');
-const { getGeminiClient, getGeminiModelName, extractGeminiText } = require('../config/gemini');
 const { logger } = require('../utils/logger');
-const { getContextSanitizer } = require('../utils/contextSanitizer');
-const { getPersonalityService } = require('./agentPersonality');
-const { getToolRegistry } = require('../lib/toolLoader');
+const { getGeminiService } = require('./gemini');
 const { getUserRoleService } = require('./userRoleService');
 
 // SECURITY: Track active SSE connections for cleanup
@@ -35,8 +32,7 @@ const MAX_HISTORY_MESSAGES = 50; // Keep last 50 messages
 class ChatService {
   constructor() {
     this.db = null;
-    this.sanitizer = null;
-    this.personalityService = null;
+    this.gemini = null;
     this.initialized = false;
   }
 
@@ -46,8 +42,7 @@ class ChatService {
     }
 
     this.db = getFirestore();
-    this.sanitizer = getContextSanitizer();
-    this.personalityService = getPersonalityService();
+    this.gemini = getGeminiService();
     this.initialized = true;
 
     logger.info('Chat service initialized');
@@ -259,253 +254,46 @@ class ChatService {
         userId
       });
 
-      // Get conversation history
-      const history = await this.getHistory(conversationId, 20);
-
-      // Build Gemini conversation context
-      const contents = [];
-
-      // Add history (excluding current message which is already added)
-      for (const msg of history.slice(0, -1)) {
-        contents.push({
-          role: msg.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: msg.content }]
-        });
-      }
-
-      // Add current message
-      contents.push({
-        role: 'user',
-        parts: [{ text: userMessage }]
-      });
-
-      // Get personality prompt
-      const personalityPrompt = this.personalityService.getPersonalityPrompt();
-
-      // SECURITY: Sanitize context
-      const sanitizedContext = this.sanitizer.sanitizeToolContext({
-        contents,
-        personalityPrompt
-      });
-
-      // Get tools available to user (RBAC enforcement)
-      const registry = getToolRegistry();
+      // Determine user role for RBAC
       const userRoleService = getUserRoleService();
-
-      // Determine user role
       const userRole = await userRoleService.getUserRole(userId);
-
-      // Get role-filtered tools
-      const availableTools = registry.getToolsForUser(userRole);
-
-      logger.info('Chat with tools', {
-        userId,
-        userRole,
-        conversationId,
-        messageCount: contents.length,
-        toolCount: availableTools.length
-      });
-
-      // Prepare tool declarations for Gemini
-      const toolDeclarations = await Promise.all(availableTools.map(async tool => {
-        let description = tool.description;
-        if (typeof tool.getDynamicDescription === 'function') {
-          description = await tool.getDynamicDescription({ userId, conversationId });
-        }
-
-        return {
-          name: tool.name,
-          description: description,
-          parameters: tool.parameters || {
-            type: 'object',
-            properties: {},
-            required: []
-          }
-        };
-      }));
-
-      // Stream response from Gemini
-      const client = getGeminiClient();
-      const modelName = getGeminiModelName();
-
-      logger.info('Streaming chat response', {
-        userId,
-        conversationId,
-        messageCount: contents.length,
-        model: modelName,
-        toolsAvailable: toolDeclarations.length
-      });
 
       // Send start event
       res.write('event: start\ndata: {"status": "streaming"}\n\n');
 
-      const requestConfig = {
-        model: modelName,
-        contents: sanitizedContext.contents || contents,
-        config: {
-          systemInstruction: sanitizedContext.personalityPrompt || personalityPrompt,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 2048
-          }
-        }
+      // Use gemini.processMessage() which handles ALL tool execution automatically
+      const messageData = {
+        message: userMessage,
+        userId: userId,
+        userName: `User ${userId}`,
+        userRole: userRole,
+        messageType: 'P', // Private chat
+        dialogId: conversationId,
+        chatId: conversationId,
+        messageId: `webchat-${Date.now()}`,
+        platform: 'web-chat'
       };
 
-      // Add tools if available
-      if (toolDeclarations.length > 0) {
-        requestConfig.config.tools = [{
-          functionDeclarations: toolDeclarations
-        }];
-        requestConfig.config.toolConfig = {
-          functionCallingConfig: {
-            mode: 'ANY'
-          }
-        };
-      }
+      const eventData = {
+        type: 'MESSAGE'
+      };
 
-      const result = await client.models.generateContentStream(requestConfig);
+      logger.info('Processing web chat message with Gemini service', {
+        userId,
+        userRole,
+        conversationId,
+        messageLength: userMessage.length
+      });
 
-      let fullResponse = '';
-      const toolCallParts = []; // Store FULL parts (including thought_signature)
+      const result = await this.gemini.processMessage(messageData, eventData);
+      const fullResponse = result?.reply || '';
 
-      // Stream chunks to client
-      // Note: @google/genai v1.30+ returns directly iterable response (not result.stream)
-      for await (const chunk of result) {
-        if (cleaned) break; // Stop if connection closed
-
-        // Check for function calls (tool execution requests from Gemini)
-        const functionCallParts = chunk.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
-        if (functionCallParts && functionCallParts.length > 0) {
-          // Gemini wants to call tools - store FULL parts (includes thought_signature)
-          logger.info('Tool calls detected in chat stream', {
-            toolCount: functionCallParts.length,
-            toolNames: functionCallParts.map(p => p.functionCall.name)
-          });
-
-          toolCallParts.push(...functionCallParts); // Store full parts, not just functionCall
-          continue; // Don't send tool calls as text to user
-        }
-
-        // New SDK structure: chunk.text is directly available
-        const text = chunk.text || extractGeminiText(chunk);
-        if (text) {
-          fullResponse += text;
-
-          // Send chunk to client
-          const eventData = JSON.stringify({ text });
-          res.write(`event: chunk\ndata: ${eventData}\n\n`);
-        }
-      }
-
-      // If tools were called, execute them and get final response
-      if (toolCallParts.length > 0) {
-        logger.info('Executing tools from chat', {
-          toolCount: toolCallParts.length,
-          userId,
-          conversationId
-        });
-
-        // Send status update to client
-        res.write('event: tool\ndata: {"status": "executing", "count": ' + toolCallParts.length + '}\n\n');
-
-        // Execute each tool
-        const toolResults = [];
-        for (const part of toolCallParts) {
-          const call = part.functionCall;
-          const tool = registry.getTool(call.name);
-          if (tool) {
-            try {
-              logger.info('Executing tool from chat', {
-                toolName: call.name,
-                args: call.args
-              });
-
-              const result = await tool.execute(call.args, { userId, conversationId });
-              toolResults.push({
-                functionResponse: {
-                  name: call.name,
-                  response: { result }
-                }
-              });
-
-              logger.info('Tool executed successfully in chat', {
-                toolName: call.name,
-                resultLength: JSON.stringify(result).length
-              });
-            } catch (error) {
-              logger.error('Tool execution failed in chat', {
-                toolName: call.name,
-                error: error.message
-              });
-
-              toolResults.push({
-                functionResponse: {
-                  name: call.name,
-                  response: { error: error.message }
-                }
-              });
-            }
-          }
-        }
-
-        // Send tool results back to Gemini for final response
-        // CRITICAL: Send back FULL parts (includes thought_signature from Gemini)
-        contents.push({
-          role: 'model',
-          parts: toolCallParts // Use full parts, not reconstructed
-        });
-        contents.push({
-          role: 'user',
-          parts: toolResults
-        });
-
-        // Get final response after tool execution
-        const finalResult = await client.models.generateContentStream({
-          model: modelName,
-          contents,
-          config: requestConfig.config
-        });
-
-        // Stream final response (may contain MORE tool calls or text)
-        fullResponse = ''; // Reset for final response
-        const additionalToolCalls = [];
-
-        for await (const chunk of finalResult) {
-          if (cleaned) break;
-
-          // Check if Gemini wants to call MORE tools
-          const moreFunctionCalls = chunk.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
-          if (moreFunctionCalls && moreFunctionCalls.length > 0) {
-            logger.info('Additional tool calls detected', {
-              count: moreFunctionCalls.length,
-              toolNames: moreFunctionCalls.map(p => p.functionCall.name)
-            });
-            additionalToolCalls.push(...moreFunctionCalls);
-            continue;
-          }
-
-          const text = chunk.text || extractGeminiText(chunk);
-          if (text) {
-            fullResponse += text;
-            const eventData = JSON.stringify({ text });
-            res.write(`event: chunk\ndata: ${eventData}\n\n`);
-          }
-        }
-
-        // If there are additional tool calls, log but don't execute (prevent infinite loop)
-        if (additionalToolCalls.length > 0) {
-          logger.warn('Gemini requested additional tool calls - not supported yet', {
-            count: additionalToolCalls.length,
-            toolNames: additionalToolCalls.map(p => p.functionCall.name),
-            suggestion: 'This request may require ComplexTaskManager or multiple tool rounds'
-          });
-        }
-      }
-
-      // Save assistant response (only if we got text)
+      // Stream response to client (all at once since processMessage returns complete text)
       if (fullResponse && fullResponse.trim()) {
+        const eventData = JSON.stringify({ text: fullResponse });
+        res.write(`event: chunk\ndata: ${eventData}\n\n`);
+
+        // Save assistant response
         await this.saveMessage(conversationId, {
           role: 'assistant',
           content: fullResponse,
@@ -514,8 +302,7 @@ class ChatService {
       } else {
         logger.warn('No text response from Gemini', {
           userId,
-          conversationId,
-          hadToolCalls: toolCallParts.length > 0
+          conversationId
         });
       }
 
