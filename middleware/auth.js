@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET } = require('../services/auth');
+const { getAuthService } = require('../services/auth');
 const { logger } = require('../utils/logger');
 const SecurityUtils = require('../utils/security');
 
@@ -27,7 +27,7 @@ function authenticateToken(req, res, next) {
     });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, getAuthService().jwtSecret, (err, user) => {
     if (err) {
       logger.warn('Invalid token attempt', {
         error: err.message,
@@ -165,7 +165,7 @@ function verifyToken(req, res, next) {
   // Check session first (for dashboard)
   if (req.session && req.session.token && req.session.user) {
     // Verify session token
-    jwt.verify(req.session.token, JWT_SECRET, (err, user) => {
+    jwt.verify(req.session.token, getAuthService().jwtSecret, (err, user) => {
       if (err) {
         // Session token expired, redirect to login
         logger.warn('Session token expired', {
@@ -225,7 +225,7 @@ function verifyToken(req, res, next) {
     }
 
     // Verify token
-    jwt.verify(token, JWT_SECRET, (err, user) => {
+    jwt.verify(token, getAuthService().jwtSecret, (err, user) => {
       if (err) {
         logger.warn('Invalid token attempt', {
           error: err.message,

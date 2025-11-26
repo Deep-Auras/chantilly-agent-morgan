@@ -29,6 +29,12 @@ router.use(sanitizeInput);
 
 // CSRF token generation for forms
 router.use((req, res, next) => {
+  // Check if session is initialized (handles race condition during startup)
+  if (!req.session) {
+    logger.warn('Session not initialized yet, waiting...');
+    return res.status(503).send('Service starting up, please wait a moment and refresh.');
+  }
+
   if (!req.session.csrfToken) {
     req.session.csrfToken = require('crypto').randomBytes(32).toString('hex');
   }
