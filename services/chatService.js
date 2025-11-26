@@ -21,6 +21,8 @@ const { getGeminiClient, getGeminiModelName, extractGeminiText } = require('../c
 const { logger } = require('../utils/logger');
 const { getContextSanitizer } = require('../utils/contextSanitizer');
 const { getPersonalityService } = require('./agentPersonality');
+const { getToolRegistry } = require('../lib/toolLoader');
+const { getUserRoleService } = require('./userRoleService');
 
 // SECURITY: Track active SSE connections for cleanup
 const activeConnections = new Map();
@@ -286,6 +288,42 @@ class ChatService {
         personalityPrompt
       });
 
+      // Get tools available to user (RBAC enforcement)
+      const registry = getToolRegistry();
+      const userRoleService = getUserRoleService();
+
+      // Determine user role
+      const userRole = await userRoleService.getUserRole(userId);
+
+      // Get role-filtered tools
+      const availableTools = registry.getToolsForUser(userRole);
+
+      logger.info('Chat with tools', {
+        userId,
+        userRole,
+        conversationId,
+        messageCount: contents.length,
+        toolCount: availableTools.length
+      });
+
+      // Prepare tool declarations for Gemini
+      const toolDeclarations = await Promise.all(availableTools.map(async tool => {
+        let description = tool.description;
+        if (typeof tool.getDynamicDescription === 'function') {
+          description = await tool.getDynamicDescription({ userId, conversationId });
+        }
+
+        return {
+          name: tool.name,
+          description: description,
+          parameters: tool.parameters || {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        };
+      }));
+
       // Stream response from Gemini
       const client = getGeminiClient();
       const modelName = getGeminiModelName();
@@ -294,13 +332,14 @@ class ChatService {
         userId,
         conversationId,
         messageCount: contents.length,
-        model: modelName
+        model: modelName,
+        toolsAvailable: toolDeclarations.length
       });
 
       // Send start event
       res.write('event: start\ndata: {"status": "streaming"}\n\n');
 
-      const result = await client.models.generateContentStream({
+      const requestConfig = {
         model: modelName,
         contents: sanitizedContext.contents || contents,
         config: {
@@ -312,14 +351,42 @@ class ChatService {
             maxOutputTokens: 2048
           }
         }
-      });
+      };
+
+      // Add tools if available
+      if (toolDeclarations.length > 0) {
+        requestConfig.config.tools = [{
+          functionDeclarations: toolDeclarations
+        }];
+        requestConfig.config.toolConfig = {
+          functionCallingConfig: {
+            mode: 'ANY'
+          }
+        };
+      }
+
+      const result = await client.models.generateContentStream(requestConfig);
 
       let fullResponse = '';
+      const toolCalls = [];
 
       // Stream chunks to client
       // Note: @google/genai v1.30+ returns directly iterable response (not result.stream)
       for await (const chunk of result) {
         if (cleaned) break; // Stop if connection closed
+
+        // Check for function calls (tool execution requests from Gemini)
+        const functionCalls = chunk.candidates?.[0]?.content?.parts?.filter(p => p.functionCall);
+        if (functionCalls && functionCalls.length > 0) {
+          // Gemini wants to call tools
+          logger.info('Tool calls detected in chat stream', {
+            toolCount: functionCalls.length,
+            toolNames: functionCalls.map(fc => fc.functionCall.name)
+          });
+
+          toolCalls.push(...functionCalls.map(fc => fc.functionCall));
+          continue; // Don't send tool calls as text to user
+        }
 
         // New SDK structure: chunk.text is directly available
         const text = chunk.text || extractGeminiText(chunk);
@@ -329,6 +396,87 @@ class ChatService {
           // Send chunk to client
           const eventData = JSON.stringify({ text });
           res.write(`event: chunk\ndata: ${eventData}\n\n`);
+        }
+      }
+
+      // If tools were called, execute them and get final response
+      if (toolCalls.length > 0) {
+        logger.info('Executing tools from chat', {
+          toolCount: toolCalls.length,
+          userId,
+          conversationId
+        });
+
+        // Send status update to client
+        res.write('event: tool\ndata: {"status": "executing", "count": ' + toolCalls.length + '}\n\n');
+
+        // Execute each tool
+        const toolResults = [];
+        for (const call of toolCalls) {
+          const tool = registry.getTool(call.name);
+          if (tool) {
+            try {
+              logger.info('Executing tool from chat', {
+                toolName: call.name,
+                args: call.args
+              });
+
+              const result = await tool.execute(call.args, { userId, conversationId });
+              toolResults.push({
+                functionResponse: {
+                  name: call.name,
+                  response: { result }
+                }
+              });
+
+              logger.info('Tool executed successfully in chat', {
+                toolName: call.name,
+                resultLength: JSON.stringify(result).length
+              });
+            } catch (error) {
+              logger.error('Tool execution failed in chat', {
+                toolName: call.name,
+                error: error.message
+              });
+
+              toolResults.push({
+                functionResponse: {
+                  name: call.name,
+                  response: { error: error.message }
+                }
+              });
+            }
+          }
+        }
+
+        // Send tool results back to Gemini for final response
+        contents.push({
+          role: 'model',
+          parts: toolCalls.map(tc => ({ functionCall: tc }))
+        });
+        contents.push({
+          role: 'user',
+          parts: toolResults
+        });
+
+        // Get final response after tool execution
+        const finalResult = await client.models.generateContentStream({
+          model: modelName,
+          contents,
+          config: requestConfig.config
+        });
+
+        // Stream final response
+        fullResponse = ''; // Reset for final response
+        for await (const chunk of finalResult) {
+          if (cleaned) break;
+
+          const text = chunk.text || extractGeminiText(chunk);
+          if (text) {
+            fullResponse += text;
+            const eventData = JSON.stringify({ text });
+            res.write(`event: chunk\ndata: ${eventData}\n\n`);
+          }
         }
       }
 
