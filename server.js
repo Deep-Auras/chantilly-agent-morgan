@@ -204,6 +204,7 @@ async function initializeServices() {
   // Try Firestore initialization
   try {
     await initializeFirestore();
+    firestoreReady = true; // Signal that Firestore is ready for requests
     logger.info('Firestore initialized');
   } catch (error) {
     logger.error('Failed to initialize Firestore', error);
@@ -349,8 +350,40 @@ async function initializeServices() {
   return !hasErrors;
 }
 
+// Readiness check - ensure Firestore is initialized before handling requests
+// Must come BEFORE any other middleware that needs database access
+let firestoreReady = false;
+app.use(async (req, res, next) => {
+  // Always allow health checks
+  if (req.path === '/health') {
+    return next();
+  }
+
+  // Wait for Firestore to be ready (with timeout)
+  if (!firestoreReady) {
+    const maxWaitTime = 30000; // 30 seconds
+    const checkInterval = 100; // Check every 100ms
+    let waited = 0;
+
+    while (!firestoreReady && waited < maxWaitTime) {
+      await new Promise(resolve => setTimeout(resolve, checkInterval));
+      waited += checkInterval;
+    }
+
+    if (!firestoreReady) {
+      logger.error('Firestore not ready after timeout', {
+        path: req.path,
+        waitedMs: waited
+      });
+      return res.status(503).send('Service Unavailable - Database not ready');
+    }
+  }
+
+  next();
+});
+
 // Setup wizard middleware - redirect to setup if needed
-// Must be registered BEFORE other routes (except health check)
+// Must be registered AFTER readiness check
 let setupCheckInitialized = false;
 app.use(async (req, res, next) => {
   // Skip setup check for certain routes

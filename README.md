@@ -67,6 +67,24 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
 
 ### Cloud Run Deployment (2025 - Zero-Config)
 
+**Prerequisites - Enable Required APIs:**
+
+Before deploying, enable these Google Cloud APIs (go to each link and click "ENABLE"):
+
+1. **[Cloud Firestore API](https://console.cloud.google.com/apis/library/firestore.googleapis.com)** - Database storage
+2. **[Cloud Run API](https://console.cloud.google.com/apis/library/run.googleapis.com)** - Serverless hosting
+3. **[Artifact Registry API](https://console.cloud.google.com/apis/library/artifactregistry.googleapis.com)** - Docker images
+4. **[Cloud Build API](https://console.cloud.google.com/apis/library/cloudbuild.googleapis.com)** - CI/CD builds
+5. **[Cloud Logging API](https://console.cloud.google.com/apis/library/logging.googleapis.com)** - Application logs
+6. **[Vertex AI API](https://console.cloud.google.com/apis/library/aiplatform.googleapis.com)** - Text embeddings
+
+After enabling APIs, **create Firestore database**:
+- Go to [Firestore](https://console.cloud.google.com/firestore)
+- Click **"Create database"**
+- Choose **"Native mode"** (NOT Datastore mode)
+- Select location: **us-central1** (match your Cloud Run region)
+- Click **"Create"**
+
 **New Deployment from Repository**:
 
 1. **Push your code to GitHub** (or GitLab/Bitbucket)

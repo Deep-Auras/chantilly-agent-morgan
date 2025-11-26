@@ -9,6 +9,7 @@ let geminiApiKey;
 /**
  * Load Gemini configuration from Firestore ONLY
  * NO FALLBACKS - Database-driven only
+ * Returns null if config doesn't exist (e.g., during first-time setup)
  */
 async function loadGeminiConfig() {
   try {
@@ -17,17 +18,26 @@ async function loadGeminiConfig() {
     const configDoc = await db.collection('agent').doc('config').get();
 
     if (!configDoc.exists) {
-      throw new Error('Configuration not found in Firestore. Please run setup wizard.');
+      logger.warn('Configuration not found in Firestore', {
+        note: 'Setup wizard has not been completed yet. Access /setup to configure.'
+      });
+      return null;
     }
 
     const data = configDoc.data();
 
     if (!data.GEMINI_API_KEY) {
-      throw new Error('GEMINI_API_KEY not found in Firestore. Please run setup wizard.');
+      logger.warn('GEMINI_API_KEY not found in Firestore', {
+        note: 'Complete setup wizard at /setup to configure API key'
+      });
+      return null;
     }
 
     if (!data.GEMINI_MODEL) {
-      throw new Error('GEMINI_MODEL not found in Firestore. Please run setup wizard.');
+      logger.warn('GEMINI_MODEL not found in Firestore', {
+        note: 'Complete setup wizard at /setup to configure model'
+      });
+      return null;
     }
 
     geminiApiKey = data.GEMINI_API_KEY;
@@ -40,11 +50,11 @@ async function loadGeminiConfig() {
 
     return { apiKey: geminiApiKey, model: geminiModelName };
   } catch (error) {
-    logger.error('CRITICAL: Failed to load Gemini config from Firestore', {
+    logger.error('Failed to load Gemini config from Firestore', {
       error: error.message,
       note: 'Run setup wizard at /setup to configure'
     });
-    throw error;
+    return null;
   }
 }
 
@@ -52,6 +62,14 @@ async function initializeGemini() {
   if (!geminiClient) {
     // Load API key and model from Firestore
     const config = await loadGeminiConfig();
+
+    // If config is null (setup not completed), skip initialization
+    if (!config) {
+      logger.warn('Gemini initialization skipped - configuration not available', {
+        note: 'Complete setup wizard at /setup to enable Gemini'
+      });
+      return { client: null, model: null };
+    }
 
     geminiClient = new GoogleGenAI({
       apiKey: config.apiKey
