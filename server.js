@@ -23,6 +23,7 @@ const knowledgeRoutes = require('./routes/knowledge');
 const workerRoutes = require('./routes/worker');
 const adminRoutes = require('./routes/admin');
 const dashboardRoutes = require('./routes/dashboard');
+const setupRoutes = require('./routes/setup');
 
 // ALWAYS load all platform routes (enabled status determined by database, not env vars)
 const bitrixWebhook = require('./webhooks/bitrix');
@@ -348,8 +349,45 @@ async function initializeServices() {
   return !hasErrors;
 }
 
+// Setup wizard middleware - redirect to setup if needed
+// Must be registered BEFORE other routes (except health check)
+let setupCheckInitialized = false;
+app.use(async (req, res, next) => {
+  // Skip setup check for certain routes
+  const skipPaths = ['/health', '/setup', '/favicon.ico'];
+  const shouldSkip = skipPaths.some(path => req.path.startsWith(path)) ||
+                     req.path.match(/\.(css|js|png|jpg|jpeg|gif|ico)$/);
+
+  if (shouldSkip) {
+    return next();
+  }
+
+  // Only check after Firestore is initialized
+  if (!setupCheckInitialized) {
+    try {
+      const { isSetupNeeded } = require('./routes/setup');
+      const needsSetup = await isSetupNeeded();
+
+      if (needsSetup && req.path !== '/setup') {
+        logger.info('Setup needed - redirecting to setup wizard', {
+          requestedPath: req.path
+        });
+        return res.redirect('/setup');
+      }
+
+      setupCheckInitialized = !needsSetup;
+    } catch (error) {
+      // If we can't check setup status, let the request continue
+      // (setup routes will handle errors appropriately)
+      logger.warn('Could not check setup status', { error: error.message });
+    }
+  }
+
+  next();
+});
+
 // Routes
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     status: 'healthy',
     service: 'Chantilly Agent',
@@ -360,6 +398,9 @@ app.get('/', (req, res) => {
 
 // Health check endpoint for Cloud Run
 app.get('/health', healthCheck);
+
+// Setup wizard routes (must be before auth requirement)
+app.use('/setup', setupRoutes);
 
 // Authentication routes
 app.use('/auth', authRoutes);
@@ -460,12 +501,12 @@ app.all('/webhook/bitrix24', webhookLimiter, bitrixWebhook);
 logger.info('Bitrix24 routes registered at /webhook/bitrix24');
 
 // 404 handler
-app.use((req, res) => {
+app.use((_req, res) => {
   res.status(404).json({ error: 'Not Found' });
 });
 
 // Error handler with better null/undefined handling
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   // Handle null/undefined errors gracefully
   const errorMessage = err?.message || 'Unknown error occurred';
   const errorStack = err?.stack || 'No stack trace available';

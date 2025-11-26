@@ -1,5 +1,4 @@
 const { getGeminiModel, getGeminiClient, getGeminiModelName, createCustomModel, extractGeminiText } = require('../config/gemini');
-const config = require('../config/env');
 const { getPromptsModel } = require('../models/prompts');
 const { getSettingsModel } = require('../models/settings');
 const { getToolRegistry } = require('../lib/toolLoader');
@@ -102,7 +101,15 @@ class GeminiService {
       }
 
       // Typing indicators only work on Bitrix24 (Google Chat API doesn't support bot typing status)
-      const ENABLE_BITRIX24 = process.env.ENABLE_BITRIX24_INTEGRATION === 'true';
+      // Check if Bitrix24 is enabled from Firestore
+      let ENABLE_BITRIX24 = false;
+      try {
+        const bitrixDoc = await this.db.collection('platform-settings').doc('bitrix24').get();
+        ENABLE_BITRIX24 = bitrixDoc.exists && bitrixDoc.data().enabled === true;
+      } catch (error) {
+        logger.warn('Could not check Bitrix24 platform status', { error: error.message });
+      }
+
       const isBitrix24Message = !messageData.platform || messageData.platform === 'bitrix24';
 
       if (ENABLE_BITRIX24 && isBitrix24Message) {
@@ -193,9 +200,22 @@ class GeminiService {
       const registry = getToolRegistry();
       const { getUserRoleService } = require('./userRoleService');
 
-      // Determine user role based on RBAC_SYSTEM configuration
+      // Determine user role based on RBAC_SYSTEM configuration from Firestore
       let userRole = 'user'; // Default to least privilege
-      const rbacSystem = config.RBAC_SYSTEM || 'bitrix24'; // Default to original behavior
+      let rbacSystem = 'bitrix24'; // Default to original behavior
+
+      try {
+        const rbacDoc = await this.db.collection('agent').doc('rbac').get();
+        if (rbacDoc.exists && rbacDoc.data().system) {
+          rbacSystem = rbacDoc.data().system;
+        }
+      } catch (error) {
+        logger.warn('Could not load RBAC system config from Firestore, using default', {
+          error: error.message,
+          default: rbacSystem
+        });
+      }
+
       const isGoogleChat = sanitizedMessageData.platform === 'google-chat';
 
       logger.info('RBAC system configured', {

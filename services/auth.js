@@ -2,23 +2,17 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
-const config = require('../config/env');
 
 // Bcrypt work factor (2025 OWASP recommendation: 12-14 rounds)
 const BCRYPT_ROUNDS = parseInt(process.env.BCRYPT_ROUNDS) || 12;
 
-// JWT_SECRET is REQUIRED - never auto-generate (causes session loss on restart)
-const JWT_SECRET = process.env.JWT_SECRET;
+// JWT configuration loaded from Firestore
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-
-// Fail fast if JWT_SECRET is missing
-if (!JWT_SECRET) {
-  throw new Error('CRITICAL: JWT_SECRET environment variable is required. Generate with: openssl rand -hex 64');
-}
 
 class AuthService {
   constructor() {
     this.db = null;
+    this.jwtSecret = null;
     this.initialized = false;
   }
 
@@ -27,11 +21,32 @@ class AuthService {
 
     this.db = getFirestore();
 
+    // Load JWT_SECRET from Firestore (setup wizard stores it there)
+    await this.loadJwtSecret();
+
     // Create default admin user if doesn't exist
     await this.createDefaultAdmin();
 
     this.initialized = true;
     logger.info('Auth service initialized');
+  }
+
+  async loadJwtSecret() {
+    try {
+      const configDoc = await this.db.collection('agent').doc('config').get();
+
+      if (!configDoc.exists || !configDoc.data().jwtSecret) {
+        throw new Error('JWT_SECRET not found in Firestore. Please run setup wizard at /setup');
+      }
+
+      this.jwtSecret = configDoc.data().jwtSecret;
+      logger.info('JWT secret loaded from Firestore');
+    } catch (error) {
+      logger.error('Failed to load JWT secret from Firestore', {
+        error: error.message
+      });
+      throw new Error('JWT_SECRET not configured. Please run setup wizard at /setup');
+    }
   }
 
   async createDefaultAdmin() {
@@ -114,7 +129,7 @@ class AuthService {
           email: userData.email,
           role: userData.role
         },
-        JWT_SECRET,
+        this.jwtSecret,
         { expiresIn: JWT_EXPIRES_IN }
       );
 
@@ -199,7 +214,7 @@ class AuthService {
 
   async verifyToken(token) {
     try {
-      const decoded = jwt.verify(token, JWT_SECRET);
+      const decoded = jwt.verify(token, this.jwtSecret);
       return {
         valid: true,
         user: decoded
@@ -348,6 +363,5 @@ function getAuthService() {
 module.exports = {
   AuthService,
   initializeAuthService,
-  getAuthService,
-  JWT_SECRET
+  getAuthService
 };

@@ -65,34 +65,49 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
    ngrok http 8080
    ```
 
-### Cloud Run Deployment
+### Cloud Run Deployment (2025 - Zero-Config)
 
-**Note**: The application is already deployed to Cloud Run. For environment updates only:
+**New Deployment from Repository**:
 
-```bash
-# Update environment variables
-gcloud run services update chantilly-adk \
-  --region us-central1 \
-  --update-env-vars NEW_VAR=value
+1. **Push your code to GitHub** (or GitLab/Bitbucket)
 
-# Deploy Firestore indexes (when adding vector search fields)
-npm run deploy:indexes
-```
+2. **Create Cloud Run Service via Console**:
+   - Go to [Google Cloud Console > Cloud Run](https://console.cloud.google.com/run)
+   - Click "Create Service"
+   - Select "Continuously deploy from a repository (source or function)"
+   - Connect your GitHub repository
+   - Select branch (main/master)
+   - Set region: `us-central1`
+   - Set minimum instances: `1` (recommended for production)
+   - Set maximum instances: `100`
+   - Click "Create"
 
-**For reference only** (initial deployment already completed):
+3. **Access Setup Wizard**:
+   - Wait for deployment to complete (~2-3 minutes)
+   - Open the Cloud Run service URL in your browser
+   - You'll be automatically redirected to `/setup`
+   - Complete the 6-step setup wizard:
+     - **Step 1**: Welcome
+     - **Step 2**: Create admin user (username, email, password)
+     - **Step 3**: Configure agent identity (agent name)
+     - **Step 4**: API configuration (Gemini API key, model selection)
+     - **Step 5**: Review & confirm
+     - **Step 6**: Success! Credentials displayed
 
-```bash
-# Validate before deployment
-npm run validate  # Run tests, linting, and security audit
+4. **Deploy Firestore Indexes** (one-time, from local machine):
+   ```bash
+   npm run deploy:indexes
+   ```
 
-# Deploy to Cloud Run
-gcloud run deploy chantilly-adk \
-  --source . \
-  --region us-central1 \
-  --allow-unauthenticated \
-  --min-instances 1 \
-  --max-instances 100
-```
+**Key Benefits**:
+- ✅ **Zero environment variables** - ADC provides `GOOGLE_CLOUD_PROJECT` automatically
+- ✅ **No manual configuration** - Everything configured via web UI
+- ✅ **Continuous deployment** - Push to GitHub auto-deploys in ~2-3 minutes
+- ✅ **Secure setup** - All config stored in Firestore, wizard auto-disabled after completion
+
+**Platform Integration** (optional, after initial setup):
+- Configure Bitrix24/Google Chat/Asana via dashboard after setup
+- See dashboard at `/dashboard` (requires admin login)
 
 ## Configuration
 
