@@ -91,6 +91,17 @@ class AuthService {
 
       const userData = userDoc.data();
 
+      // CRITICAL DEBUG: Log user data structure
+      logger.info('AUTH DEBUG - User data loaded', {
+        username,
+        hasPassword: !!userData.password,
+        passwordLength: userData.password ? userData.password.length : 0,
+        passwordPrefix: userData.password ? userData.password.substring(0, 10) : 'none',
+        locked: userData.locked,
+        failedAttempts: userData.failedAttempts,
+        inputPasswordLength: password ? password.length : 0
+      });
+
       // Check if account is locked
       if (userData.locked) {
         logger.warn('Account is locked', { username });
@@ -101,7 +112,9 @@ class AuthService {
       }
 
       // Verify password
+      logger.info('AUTH DEBUG - About to compare passwords', { username });
       const isValid = await bcrypt.compare(password, userData.password);
+      logger.info('AUTH DEBUG - Password comparison result', { username, isValid });
 
       if (!isValid) {
         logger.warn('Invalid password', { username });

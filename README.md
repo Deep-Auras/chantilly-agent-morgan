@@ -129,49 +129,6 @@ After enabling APIs, **create Firestore database**:
 
 ## Configuration
 
-### Required Environment Variables
-
-```bash
-# Bitrix24
-BITRIX24_DOMAIN=your-domain.bitrix24.com
-BITRIX24_INBOUND_WEBHOOK=https://your-domain.bitrix24.com/rest/1/key/
-BITRIX24_OUTBOUND_SECRET=secret-key
-BITRIX24_USER_ID=1
-
-# Google Cloud
-GOOGLE_CLOUD_PROJECT=your-project-id
-FIRESTORE_DATABASE_ID=chantilly-agent-${AGENT_NAME}
-VERTEX_AI_LOCATION=us-central1
-
-# Gemini
-GEMINI_API_KEY=your-api-key
-GEMINI_MODEL=gemini-2.5-pro
-
-# Auth
-JWT_SECRET=your-jwt-secret
-DEFAULT_ADMIN_USERNAME=admin
-DEFAULT_ADMIN_PASSWORD=secure-password
-DEFAULT_ADMIN_EMAIL=admin@company.com
-```
-
-### Optional Environment Variables
-
-```bash
-# Feature Flags
-ENABLE_VECTOR_SEARCH=true
-ENABLE_SEMANTIC_TEMPLATES=true
-ENABLE_SEMANTIC_TOOLS=true
-REASONING_MEMORY_ENABLED=true
-TRANSLATION_ENABLED=true
-
-# Configuration
-USE_DB_PROMPTS=false
-LOG_LEVEL=info
-NODE_ENV=production
-PORT=8080
-TOOL_EXECUTION_TIMEOUT=720000
-```
-
 ### Firestore Collections
 
 #### Core Collections
