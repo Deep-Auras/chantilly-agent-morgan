@@ -222,26 +222,34 @@ class GoogleChatService {
     const { message, space, user } = event;
 
     // PHASE 16.3: REQUEST DEDUPLICATION (CRITICAL - Must happen FIRST)
-    // Google Chat sends duplicate webhooks within 133ms, too fast for async Map checks.
-    // Use message.name (or generate stable ID) to detect duplicates.
+    // Google Chat sends duplicate webhooks, sometimes with different message.name values.
+    // Use STABLE content-based hash to detect duplicates reliably.
 
-    const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
+    const crypto = require('crypto');
+    const messageContent = `${space.name}|${user.name}|${message.text || ''}`;
+    const messageHash = crypto.createHash('sha256').update(messageContent).digest('hex').substring(0, 16);
+
+    // Use hash as primary key, fallback to message.name only if hash generation fails
+    const messageId = messageHash || message.name || `${space.name}-${user.name}-${Date.now()}`;
 
     logger.info('DEDUPLICATION CHECK', {
-      messageId: messageId.substring(0, 150),
+      messageId,
+      messageHash,
       messageName: message.name || 'NO MESSAGE.NAME',
       spaceName: space.name,
       userName: user.displayName,
       messageText: message.text?.substring(0, 100),
       currentInFlight: this.processingMessages.size,
       alreadyProcessing: this.processingMessages.has(messageId),
-      inFlightKeys: Array.from(this.processingMessages.keys()).map(k => k.substring(0, 100))
+      inFlightKeys: Array.from(this.processingMessages.keys()).map(k => k.substring(0, 20))
     });
 
     // SYNCHRONOUS duplicate check (no await before this)
     if (this.processingMessages.has(messageId)) {
       logger.warn('DUPLICATE DETECTED - Ignoring request', {
-        messageId: messageId.substring(0, 100),
+        messageId,
+        messageHash,
+        messageName: message.name || 'NO MESSAGE.NAME',
         spaceName: space.name,
         userName: user.displayName,
         inFlightCount: this.processingMessages.size
@@ -253,11 +261,13 @@ class GoogleChatService {
     this.processingMessages.set(messageId, {
       startTime: Date.now(),
       spaceName: space.name,
-      userName: user.displayName
+      userName: user.displayName,
+      messageHash
     });
 
     logger.info('REQUEST ACCEPTED - Added to processing map', {
-      messageId: messageId.substring(0, 100),
+      messageId,
+      messageHash,
       inFlightCount: this.processingMessages.size
     });
 
