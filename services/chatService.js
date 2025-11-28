@@ -34,6 +34,10 @@ class ChatService {
     this.db = null;
     this.gemini = null;
     this.initialized = false;
+
+    // In-memory dedup cache to prevent duplicate request processing
+    this.processingRequests = new Map();
+    this.DEDUP_CACHE_TTL_MS = 30 * 1000; // 30 seconds
   }
 
   async initialize() {
@@ -214,6 +218,40 @@ class ChatService {
       return;
     }
 
+    // DEDUPLICATION: Prevent duplicate request processing
+    // Create a deterministic key from user + conversation + message hash
+    const crypto = require('crypto');
+    const messageHash = crypto.createHash('md5').update(userMessage).digest('hex').substring(0, 8);
+    const dedupKey = `${userId}_${conversationId}_${messageHash}`;
+
+    // Check if this exact request is already being processed
+    if (this.processingRequests.has(dedupKey)) {
+      const existingTimestamp = this.processingRequests.get(dedupKey);
+      if (Date.now() - existingTimestamp < this.DEDUP_CACHE_TTL_MS) {
+        logger.warn('DUPLICATE REQUEST BLOCKED', {
+          dedupKey,
+          userId,
+          conversationId,
+          ageMs: Date.now() - existingTimestamp
+        });
+        res.status(429).json({ error: 'Request already processing' });
+        return;
+      }
+    }
+
+    // Mark this request as processing
+    this.processingRequests.set(dedupKey, Date.now());
+
+    // Cleanup old entries (prevent memory leak)
+    if (this.processingRequests.size > 1000) {
+      const now = Date.now();
+      for (const [key, timestamp] of this.processingRequests.entries()) {
+        if (now - timestamp > this.DEDUP_CACHE_TTL_MS) {
+          this.processingRequests.delete(key);
+        }
+      }
+    }
+
     // Set SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -343,6 +381,8 @@ class ChatService {
       res.end();
     } finally {
       cleanup();
+      // Clear dedup key after processing completes
+      this.processingRequests.delete(dedupKey);
     }
   }
 

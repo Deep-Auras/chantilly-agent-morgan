@@ -15,13 +15,38 @@ class GoogleChatService {
     this.FieldValue = getFieldValue();
     this.initialized = false;
 
+    // PHASE 16.5: In-memory dedup cache for same-instance duplicates
+    // Faster than Firestore for requests hitting the same Cloud Run instance
+    this.dedupCache = new Map();
+    this.DEDUP_CACHE_MAX_SIZE = 1000;
+    this.DEDUP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
     // CRITICAL: Periodic cleanup of stale Firestore dedup locks
     // Removes entries older than 5 minutes (safety measure - Firestore TTL should handle this)
     this.cleanupInterval = setInterval(() => {
       this.cleanupStaleProcessing().catch(err => {
         logger.error('Cleanup interval error', { error: err.message });
       });
+      // Also clean up in-memory cache
+      this.cleanupDedupCache();
     }, 60000); // Run every 60 seconds
+  }
+
+  /**
+   * Clean up expired entries from in-memory dedup cache
+   */
+  cleanupDedupCache() {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [key, timestamp] of this.dedupCache.entries()) {
+      if (now - timestamp > this.DEDUP_CACHE_TTL_MS) {
+        this.dedupCache.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      logger.debug('Cleaned up in-memory dedup cache', { cleaned, remaining: this.dedupCache.size });
+    }
   }
 
   async initialize() {
@@ -275,53 +300,76 @@ class GoogleChatService {
       usedFallback: !message.name
     });
 
-    logger.info('DEDUPLICATION CHECK (Firestore)', {
-      messageId,
-      sanitizedMessageId,
-      spaceName: space.name,
-      userName: user.displayName,
-      messageText: message.text?.substring(0, 100)
-    });
+    // PHASE 16.5a: IN-MEMORY DEDUP (same-instance, microsecond speed)
+    if (this.dedupCache.has(sanitizedMessageId)) {
+      logger.warn('DUPLICATE DETECTED via in-memory cache', {
+        messageId,
+        sanitizedMessageId,
+        cacheAge: Date.now() - this.dedupCache.get(sanitizedMessageId)
+      });
+      return this.createCardResponse('⏳ Processing your request...');
+    }
 
-    // Firestore atomic check-and-set
-    // If document already exists, this will throw ALREADY_EXISTS error
+    // Add to in-memory cache immediately (before Firestore check)
+    // This catches rapid-fire duplicates on same instance
+    if (this.dedupCache.size >= this.DEDUP_CACHE_MAX_SIZE) {
+      // Evict oldest entry
+      const oldestKey = this.dedupCache.keys().next().value;
+      this.dedupCache.delete(oldestKey);
+    }
+    this.dedupCache.set(sanitizedMessageId, Date.now());
+
+    // PHASE 16.5b: TRANSACTION-BASED DEDUPLICATION (cross-instance)
+    // Firestore create() has known race conditions (https://github.com/googleapis/nodejs-firestore/issues/160)
+    // Use transaction with get-then-create for TRUE atomicity
     const dedupRef = this.db.collection('google-chat-dedup').doc(sanitizedMessageId);
 
     try {
-      // Attempt atomic create (fails if document already exists)
-      await dedupRef.create({
-        messageId: messageId,
-        sanitizedMessageId,
-        spaceName: space.name,
-        userName: user.displayName,
-        messageText: message.text?.substring(0, 100),
-        createdAt: this.FieldValue.serverTimestamp(),
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 min TTL for cleanup
-      });
+      const isDuplicate = await this.db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(dedupRef);
 
-      logger.info('DEDUP LOCK ACQUIRED - First instance to process', {
-        messageId,
-        sanitizedMessageId
-      });
+        if (doc.exists) {
+          // Document already exists - this is a duplicate
+          logger.warn('DUPLICATE DETECTED via transaction', {
+            messageId,
+            sanitizedMessageId,
+            existingTimestamp: doc.data()?.createdAt
+          });
+          return true; // Signal duplicate
+        }
 
-    } catch (error) {
-      // Document already exists → duplicate request
-      if (error.code === 6 || error.code === 'ALREADY_EXISTS') {
-        logger.warn('DUPLICATE DETECTED - Another instance already processing', {
-          messageId,
+        // Document doesn't exist - create it within transaction
+        transaction.set(dedupRef, {
+          messageId: messageId,
           sanitizedMessageId,
           spaceName: space.name,
-          userName: user.displayName
+          userName: user.displayName,
+          messageText: message.text?.substring(0, 100),
+          createdAt: this.FieldValue.serverTimestamp(),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 min TTL for cleanup
         });
+
+        logger.info('DEDUP LOCK ACQUIRED via transaction', {
+          messageId,
+          sanitizedMessageId
+        });
+
+        return false; // Not a duplicate
+      });
+
+      if (isDuplicate) {
         return this.createCardResponse('⏳ Processing your request...');
       }
 
-      // Other error (network, permissions, etc.) - log and proceed to avoid blocking
-      logger.error('Firestore dedup check failed - proceeding anyway', {
+    } catch (error) {
+      // Transaction failed - likely contention, treat as potential duplicate
+      logger.error('Firestore transaction failed - blocking to be safe', {
         error: error.message,
         code: error.code,
         messageId
       });
+      // CRITICAL: Return instead of proceeding to prevent duplicates
+      return this.createCardResponse('⏳ Processing your request...');
     }
 
     logger.info('REQUEST ACCEPTED - Processing message', {
