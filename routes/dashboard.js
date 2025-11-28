@@ -1398,6 +1398,19 @@ router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
   try {
     const { message, conversationId } = req.body;
 
+    // CRITICAL DEBUG: Log at absolute entry point to trace duplicates
+    const entryTimestamp = Date.now();
+    logger.info('========================================');
+    logger.info('ROUTE HANDLER ENTRY', {
+      entryTimestamp,
+      userId: req.user.id,
+      conversationId,
+      messageLength: message?.length,
+      messagePreview: message?.substring(0, 100),
+      stackTrace: new Error().stack.split('\n').slice(2, 4).join(' | ')
+    });
+    logger.info('========================================');
+
     logger.info('Chat stream request received', {
       userId: req.user.id,
       conversationId,

@@ -192,6 +192,17 @@ class ChatService {
       await this.initialize();
     }
 
+    // CRITICAL DEBUG: Log at absolute entry point to trace duplicates
+    const entryTimestamp = Date.now();
+    logger.info('STREAMRESPONSE ENTRY', {
+      entryTimestamp,
+      userId,
+      conversationId,
+      messageLength: userMessage?.length || 0,
+      messagePreview: userMessage?.substring(0, 100),
+      stackTrace: new Error().stack.split('\n').slice(2, 4).join(' | ')
+    });
+
     // SECURITY: Validate input
     if (!userMessage || typeof userMessage !== 'string') {
       res.status(400).json({ error: 'Invalid message' });
