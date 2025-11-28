@@ -270,35 +270,9 @@ class GoogleChatService {
   async handleMessage(event) {
     const { message, space, user } = event;
 
-    // CRITICAL DEBUG: Log at absolute entry point to trace duplicates
-    const entryTimestamp = Date.now();
-    logger.info('HANDLEMESSAGE ENTRY', {
-      entryTimestamp,
-      hasMessageName: !!message.name,
-      messageNameValue: message.name,
-      spaceName: space.name,
-      userName: user.displayName,
-      messageTextPreview: message.text?.substring(0, 100),
-      stackTrace: new Error().stack.split('\n').slice(2, 4).join(' | ')
-    });
-
-    // PHASE 16.4: FIRESTORE DEDUPLICATION (Multi-instance safe)
-    // Google Chat sends duplicate webhooks to different Cloud Run instances.
-    // Use Google's stable message.name as idempotency key with Firestore atomic create.
-
-    // Use Google's stable message ID (format: spaces/{space}/messages/{message})
-    // CRITICAL: If message.name is missing, this creates DIFFERENT IDs per delivery!
+    // Use Google's stable message ID as dedup key (format: spaces/{space}/messages/{message})
     const messageId = message.name || `${space.name}-${Date.now()}`;
-
-    // Sanitize for Firestore doc ID (remove slashes)
     const sanitizedMessageId = messageId.replace(/\//g, '_');
-
-    // CRITICAL DEBUG: Log the dedup key being used
-    logger.info('DEDUP KEY GENERATED', {
-      messageId,
-      sanitizedMessageId,
-      usedFallback: !message.name
-    });
 
     // PHASE 16.5a: IN-MEMORY DEDUP (same-instance, microsecond speed)
     if (this.dedupCache.has(sanitizedMessageId)) {

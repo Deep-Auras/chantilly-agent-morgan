@@ -93,8 +93,7 @@ router.post('/login', async (req, res) => {
         req.session.token = result.token;
         req.session.user = result.user;
 
-        // CRITICAL DEBUG: Log session after setting
-        logger.info('LOGIN SUCCESS - Session set', {
+        logger.info('Login successful', {
           sessionID: req.sessionID,
           hasToken: !!req.session.token,
           hasUser: !!req.session.user,
