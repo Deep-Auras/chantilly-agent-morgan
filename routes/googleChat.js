@@ -11,6 +11,16 @@ router.post('/webhook/google-chat', async (req, res) => {
     const event = req.body;
     const chatService = getGoogleChatService();
 
+    // Log webhook request for tracing
+    const requestId = req.headers['x-goog-chat-request-id'] || req.headers['x-request-id'] || 'unknown';
+    const messageId = event.chat?.messagePayload?.message?.name || event.message?.name || 'unknown';
+
+    logger.info('Google Chat webhook received', {
+      requestId,
+      messageId,
+      eventType: event.chat ? 'add-on' : (event.type || 'unknown')
+    });
+
     // Google Workspace Add-on format: event.chat.messagePayload
     // Simple Chat app format: event.type, event.message, event.space
     const isAddOnFormat = event.chat && event.chat.messagePayload;

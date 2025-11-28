@@ -14,13 +14,39 @@ class GoogleChatService {
     this.db = getFirestore();
     this.FieldValue = getFieldValue();
     this.initialized = false;
-    this.processingMessages = new Map(); // Track in-flight message processing to prevent duplicates
 
-    // CRITICAL: Periodic cleanup to prevent memory leaks
-    // Remove stale entries older than 5 minutes (should never happen, but safety measure)
+    // PHASE 16.5: In-memory dedup cache for same-instance duplicates
+    // Faster than Firestore for requests hitting the same Cloud Run instance
+    this.dedupCache = new Map();
+    this.DEDUP_CACHE_MAX_SIZE = 1000;
+    this.DEDUP_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+    // CRITICAL: Periodic cleanup of stale Firestore dedup locks
+    // Removes entries older than 5 minutes (safety measure - Firestore TTL should handle this)
     this.cleanupInterval = setInterval(() => {
-      this.cleanupStaleProcessing();
+      this.cleanupStaleProcessing().catch(err => {
+        logger.error('Cleanup interval error', { error: err.message });
+      });
+      // Also clean up in-memory cache
+      this.cleanupDedupCache();
     }, 60000); // Run every 60 seconds
+  }
+
+  /**
+   * Clean up expired entries from in-memory dedup cache
+   */
+  cleanupDedupCache() {
+    const now = Date.now();
+    let cleaned = 0;
+    for (const [key, timestamp] of this.dedupCache.entries()) {
+      if (now - timestamp > this.DEDUP_CACHE_TTL_MS) {
+        this.dedupCache.delete(key);
+        cleaned++;
+      }
+    }
+    if (cleaned > 0) {
+      logger.debug('Cleaned up in-memory dedup cache', { cleaned, remaining: this.dedupCache.size });
+    }
   }
 
   async initialize() {
@@ -46,32 +72,55 @@ class GoogleChatService {
   }
 
   /**
-   * PHASE 16.3: Cleanup stale processing entries
-   * Removes entries older than 5 minutes to prevent memory leaks
+   * PHASE 16.4: Cleanup dedup lock from Firestore
+   * Call after message processing completes
    */
-  cleanupStaleProcessing() {
-    const now = Date.now();
-    const MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
-    let cleanedCount = 0;
+  async cleanupDedupLock(sanitizedMessageId) {
+    try {
+      // Remove from Firestore dedup collection
+      const dedupRef = this.db.collection('google-chat-dedup').doc(sanitizedMessageId);
+      await dedupRef.delete();
 
-    for (const [messageId, data] of this.processingMessages.entries()) {
-      const age = now - data.startTime;
-      if (age > MAX_AGE_MS) {
-        this.processingMessages.delete(messageId);
-        cleanedCount++;
-        logger.warn('Removed stale processing entry', {
-          messageId,
-          ageMinutes: (age / 60000).toFixed(1),
-          spaceName: data.spaceName,
-          userName: data.userName
-        });
-      }
+      logger.debug('Cleaned up dedup lock', { sanitizedMessageId });
+    } catch (error) {
+      // Log but don't throw - cleanup failure shouldn't break execution
+      logger.warn('Failed to cleanup dedup lock', {
+        sanitizedMessageId,
+        error: error.message
+      });
     }
+  }
 
-    if (cleanedCount > 0) {
-      logger.info('Cleanup completed', {
-        removedCount: cleanedCount,
-        remainingCount: this.processingMessages.size
+  /**
+   * PHASE 16.4: Cleanup stale dedup locks from Firestore
+   * Removes entries older than 5 minutes (safety measure - should auto-expire)
+   */
+  async cleanupStaleProcessing() {
+    try {
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+      const snapshot = await this.db.collection('google-chat-dedup')
+        .where('expiresAt', '<', fiveMinutesAgo)
+        .limit(100) // Batch limit
+        .get();
+
+      if (snapshot.empty) {
+        return;
+      }
+
+      const batch = this.db.batch();
+      snapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+
+      await batch.commit();
+
+      logger.info('Cleaned up stale dedup locks', {
+        removedCount: snapshot.size
+      });
+    } catch (error) {
+      logger.error('Failed to cleanup stale dedup locks', {
+        error: error.message
       });
     }
   }
@@ -221,28 +270,85 @@ class GoogleChatService {
   async handleMessage(event) {
     const { message, space, user } = event;
 
-    // PHASE 16.3: REQUEST DEDUPLICATION (CRITICAL - Must happen FIRST)
-    // Google Chat sends duplicate webhooks within 133ms, too fast for async Map checks.
-    // Use message.name (or generate stable ID) to detect duplicates.
+    // Use Google's stable message ID as dedup key (format: spaces/{space}/messages/{message})
+    const messageId = message.name || `${space.name}-${Date.now()}`;
+    const sanitizedMessageId = messageId.replace(/\//g, '_');
 
-    const messageId = message.name || `${space.name}-${user.name}-${message.text?.substring(0, 50)}`;
-
-    // SYNCHRONOUS duplicate check (no await before this)
-    if (this.processingMessages.has(messageId)) {
-      logger.warn('Duplicate webhook detected, ignoring', {
-        messageId: messageId.substring(0, 100),
-        spaceName: space.name,
-        userName: user.displayName,
-        inFlightCount: this.processingMessages.size
+    // PHASE 16.5a: IN-MEMORY DEDUP (same-instance, microsecond speed)
+    if (this.dedupCache.has(sanitizedMessageId)) {
+      logger.warn('DUPLICATE DETECTED via in-memory cache', {
+        messageId,
+        sanitizedMessageId,
+        cacheAge: Date.now() - this.dedupCache.get(sanitizedMessageId)
       });
-      return this.createCardResponse('⏳ Processing your previous request...');
+      return this.createCardResponse('⏳ Processing your request...');
     }
 
-    // Mark IMMEDIATELY before any async operations
-    this.processingMessages.set(messageId, {
-      startTime: Date.now(),
-      spaceName: space.name,
-      userName: user.displayName
+    // Add to in-memory cache immediately (before Firestore check)
+    // This catches rapid-fire duplicates on same instance
+    if (this.dedupCache.size >= this.DEDUP_CACHE_MAX_SIZE) {
+      // Evict oldest entry
+      const oldestKey = this.dedupCache.keys().next().value;
+      this.dedupCache.delete(oldestKey);
+    }
+    this.dedupCache.set(sanitizedMessageId, Date.now());
+
+    // PHASE 16.5b: TRANSACTION-BASED DEDUPLICATION (cross-instance)
+    // Firestore create() has known race conditions (https://github.com/googleapis/nodejs-firestore/issues/160)
+    // Use transaction with get-then-create for TRUE atomicity
+    const dedupRef = this.db.collection('google-chat-dedup').doc(sanitizedMessageId);
+
+    try {
+      const isDuplicate = await this.db.runTransaction(async (transaction) => {
+        const doc = await transaction.get(dedupRef);
+
+        if (doc.exists) {
+          // Document already exists - this is a duplicate
+          logger.warn('DUPLICATE DETECTED via transaction', {
+            messageId,
+            sanitizedMessageId,
+            existingTimestamp: doc.data()?.createdAt
+          });
+          return true; // Signal duplicate
+        }
+
+        // Document doesn't exist - create it within transaction
+        transaction.set(dedupRef, {
+          messageId: messageId,
+          sanitizedMessageId,
+          spaceName: space.name,
+          userName: user.displayName,
+          messageText: message.text?.substring(0, 100),
+          createdAt: this.FieldValue.serverTimestamp(),
+          expiresAt: new Date(Date.now() + 5 * 60 * 1000) // 5 min TTL for cleanup
+        });
+
+        logger.info('DEDUP LOCK ACQUIRED via transaction', {
+          messageId,
+          sanitizedMessageId
+        });
+
+        return false; // Not a duplicate
+      });
+
+      if (isDuplicate) {
+        return this.createCardResponse('⏳ Processing your request...');
+      }
+
+    } catch (error) {
+      // Transaction failed - likely contention, treat as potential duplicate
+      logger.error('Firestore transaction failed - blocking to be safe', {
+        error: error.message,
+        code: error.code,
+        messageId
+      });
+      // CRITICAL: Return instead of proceeding to prevent duplicates
+      return this.createCardResponse('⏳ Processing your request...');
+    }
+
+    logger.info('REQUEST ACCEPTED - Processing message', {
+      messageId,
+      sanitizedMessageId
     });
 
     try {
@@ -352,17 +458,13 @@ class GoogleChatService {
               }
             }
           } finally {
-            // CRITICAL: Remove from processing Map after background completion
-            this.processingMessages.delete(messageId);
-            logger.debug('Removed message from processing Map (background)', {
-              messageId,
-              remainingCount: this.processingMessages.size
-            });
+            // CRITICAL: Remove dedup lock after background completion
+            await this.cleanupDedupLock(sanitizedMessageId);
           }
-        }).catch(error => {
+        }).catch(async error => {
           logger.error('Unhandled error in background processing', { error: error.message });
           // Cleanup even on error
-          this.processingMessages.delete(messageId);
+          await this.cleanupDedupLock(sanitizedMessageId);
         });
 
         return raceResult.response; // Return acknowledgment
@@ -370,8 +472,8 @@ class GoogleChatService {
         // Processing won the race - return normal response
         await this.cacheMessage(conversationId, user, message.text, raceResult.responseText);
 
-        // CRITICAL: Remove from processing Map after successful completion
-        this.processingMessages.delete(messageId);
+        // CRITICAL: Remove dedup lock after successful completion
+        await this.cleanupDedupLock(sanitizedMessageId);
 
         return this.createCardResponse(raceResult.responseText);
       } else if (raceResult.type === 'error') {
@@ -380,8 +482,8 @@ class GoogleChatService {
           error: raceResult.error.message
         });
 
-        // CRITICAL: Remove from processing Map after error
-        this.processingMessages.delete(messageId);
+        // CRITICAL: Remove dedup lock after error
+        await this.cleanupDedupLock(sanitizedMessageId);
 
         return {
           text: '❌ Sorry, I encountered an error processing your message.'
@@ -393,8 +495,8 @@ class GoogleChatService {
         stack: error.stack
       });
 
-      // CRITICAL: Remove from processing Map on exception
-      this.processingMessages.delete(messageId);
+      // CRITICAL: Remove dedup lock on exception
+      await this.cleanupDedupLock(sanitizedMessageId);
 
       return {
         text: '❌ Sorry, I encountered an error processing your message.'

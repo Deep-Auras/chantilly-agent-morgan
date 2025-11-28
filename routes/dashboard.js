@@ -1398,7 +1398,7 @@ router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
   try {
     const { message, conversationId } = req.body;
 
-    logger.info('Chat stream request received', {
+    logger.info('Chat stream request', {
       userId: req.user.id,
       conversationId,
       messageLength: message?.length

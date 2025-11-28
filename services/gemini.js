@@ -91,12 +91,13 @@ class GeminiService {
 
   async processMessage(messageData, eventData) {
     let stopTyping = null;
+    const requestId = `${messageData.platform || 'unknown'}-${messageData.messageId || Date.now()}`;
 
     try {
       // Check if agent should respond based on personality and triggers
       const shouldRespond = await this.shouldAgentRespond(messageData.message, messageData.userId, messageData.messageType);
       if (!shouldRespond) {
-        logger.debug('Agent not responding based on triggers', { messageId: messageData.messageId });
+        logger.debug('Agent not responding based on triggers', { messageId: messageData.messageId, requestId });
         return null;
       }
 
@@ -393,15 +394,12 @@ class GeminiService {
         timestamp: new Date()
       });
 
-      logger.info('Response ready to be sent', {
-        replyPreview: response.reply.substring(0, 100)
-      });
-
       return response;
     } catch (error) {
       logger.error('Failed to process message with Gemini', {
         error: error.message,
-        messageId: messageData.messageId
+        messageId: messageData.messageId,
+        requestId
       });
       throw error;
     } finally {
@@ -416,25 +414,16 @@ class GeminiService {
     // Initialize or increment tool execution depth
     const currentDepth = (toolExecutionContext.executionDepth || 0) + 1;
     const maxDepth = 5; // Maximum tool execution depth to prevent infinite loops
-    
+    const executionId = `exec-${Date.now()}`;
+
     if (currentDepth > maxDepth) {
-      logger.error('Tool execution depth limit exceeded', {
-        currentDepth,
-        maxDepth,
-        toolNames: tools.map(t => t.name)
-      });
+      logger.error('Tool execution depth limit exceeded', { currentDepth, maxDepth });
       throw new Error(`Maximum tool execution depth exceeded (${currentDepth} > ${maxDepth}). Possible infinite loop detected.`);
     }
-    
+
     // Add depth tracking to context
     toolExecutionContext.executionDepth = currentDepth;
-    
-    logger.info('Tool execution started', {
-      depth: currentDepth,
-      maxDepth,
-      toolCount: tools.length,
-      toolNames: tools.map(t => t.name)
-    });
+    toolExecutionContext.executionId = executionId;
     try {
       // Get tool registry
       const registry = getToolRegistry();
@@ -853,17 +842,12 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         textLength: finalText.length
       });
 
-      logger.info('Final response prepared for user', {
-        responseLength: finalText.length,
-        toolsUsed: toolResults.map(t => t.name)
-      });
-
       return {
         reply: finalText,
         toolsUsed: toolResults.map(t => t.name)
       };
     } catch (error) {
-      logger.error('Failed to execute with tools', error);
+      logger.error('Failed to execute with tools', { executionId, error: error.message, stack: error.stack });
       throw error;
     }
   }
