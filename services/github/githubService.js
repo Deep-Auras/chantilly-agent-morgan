@@ -1,0 +1,635 @@
+/**
+ * GitHub Integration Service
+ * Handles all GitHub API operations using Octokit
+ * Uses GitHub Contents API for stateless file operations (no local git clone)
+ */
+
+const { Octokit } = require('@octokit/rest');
+const { getFirestore, getFieldValue } = require('../../config/firestore');
+const { logger } = require('../../utils/logger');
+
+class GitHubService {
+  constructor() {
+    this.octokit = null;
+    this.db = getFirestore();
+    this.FieldValue = getFieldValue();
+    this.initialized = false;
+    this.config = null;
+    this.treeCache = new Map(); // Cache repo tree for session
+    this.treeCacheExpiry = 5 * 60 * 1000; // 5 minutes
+    this.MAX_CACHE_SIZE = 100;
+  }
+
+  /**
+   * Initialize the service with config from Firestore
+   */
+  async initialize() {
+    if (this.initialized) return;
+
+    try {
+      // Load config from Firestore
+      const configDoc = await this.db.doc('agent/platforms/github/config').get();
+
+      if (!configDoc.exists) {
+        logger.warn('GitHub config not found in Firestore');
+        return;
+      }
+
+      this.config = configDoc.data();
+
+      if (!this.config.enabled) {
+        logger.info('GitHub integration is disabled');
+        return;
+      }
+
+      // Initialize Octokit based on auth type
+      if (this.config.authType === 'personal-token' && this.config.accessToken) {
+        this.octokit = new Octokit({
+          auth: this.config.accessToken
+        });
+      } else if (this.config.authType === 'github-app') {
+        // GitHub App authentication would go here
+        // For now, we only support personal tokens
+        throw new Error('GitHub App authentication not yet implemented');
+      } else {
+        throw new Error('Invalid GitHub authentication configuration');
+      }
+
+      this.initialized = true;
+      logger.info('GitHub service initialized', {
+        owner: this.config.defaultOwner,
+        repo: this.config.defaultRepo
+      });
+    } catch (error) {
+      logger.error('Failed to initialize GitHub service', { error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Check if GitHub integration is enabled
+   */
+  async isEnabled() {
+    if (!this.config) {
+      const configDoc = await this.db.doc('agent/platforms/github/config').get();
+      if (!configDoc.exists) return false;
+      this.config = configDoc.data();
+    }
+    return this.config?.enabled === true;
+  }
+
+  /**
+   * Verify GitHub connection - tests API auth, repo access, and branch listing
+   */
+  async verifyConnection() {
+    try {
+      await this.initialize();
+
+      if (!this.octokit) {
+        return {
+          connected: false,
+          error: 'GitHub client not initialized'
+        };
+      }
+
+      // 1. Test API authentication
+      const { data: user } = await this.octokit.rest.users.getAuthenticated();
+
+      // 2. Test repository access
+      const { defaultOwner, defaultRepo } = this.config;
+      if (!defaultOwner || !defaultRepo) {
+        return {
+          connected: false,
+          error: 'Repository owner or name not configured'
+        };
+      }
+
+      await this.octokit.rest.repos.get({
+        owner: defaultOwner,
+        repo: defaultRepo
+      });
+
+      // 3. Test branch listing (verify read permissions)
+      const { data: branches } = await this.octokit.rest.repos.listBranches({
+        owner: defaultOwner,
+        repo: defaultRepo,
+        per_page: 5
+      });
+
+      return {
+        connected: true,
+        user: user.login,
+        repository: `${defaultOwner}/${defaultRepo}`,
+        branchCount: branches.length,
+        permissions: {
+          read: true,
+          write: true // We'll assume write if read works for personal tokens
+        }
+      };
+    } catch (error) {
+      logger.error('GitHub connection verification failed', {
+        error: error.message,
+        status: error.status
+      });
+      return {
+        connected: false,
+        error: error.message,
+        status: error.status
+      };
+    }
+  }
+
+  /**
+   * Get repository information
+   */
+  async getRepository(owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.get({ owner, repo });
+    return data;
+  }
+
+  /**
+   * List all branches
+   */
+  async listBranches(owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.listBranches({
+      owner,
+      repo,
+      per_page: 100
+    });
+    return data;
+  }
+
+  /**
+   * Get specific branch info
+   */
+  async getBranch(branch, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.getBranch({
+      owner,
+      repo,
+      branch
+    });
+    return data;
+  }
+
+  /**
+   * Create a new branch from an existing branch
+   */
+  async createBranch(branchName, fromBranch = 'main', owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    // Get the SHA of the source branch
+    const { data: sourceBranch } = await this.octokit.rest.repos.getBranch({
+      owner,
+      repo,
+      branch: fromBranch
+    });
+
+    // Create new branch reference
+    const { data } = await this.octokit.rest.git.createRef({
+      owner,
+      repo,
+      ref: `refs/heads/${branchName}`,
+      sha: sourceBranch.commit.sha
+    });
+
+    logger.info('Created new branch', {
+      branch: branchName,
+      fromBranch,
+      sha: sourceBranch.commit.sha
+    });
+
+    return data;
+  }
+
+  /**
+   * Merge one branch into another
+   */
+  async mergeBranch(base, head, commitMessage = null, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.merge({
+      owner,
+      repo,
+      base,
+      head,
+      commit_message: commitMessage || `Merge ${head} into ${base}`
+    });
+
+    logger.info('Merged branches', { base, head, sha: data.sha });
+    return data;
+  }
+
+  /**
+   * Get file contents from repository
+   * Returns decoded content and SHA for updates
+   */
+  async getFileContents(path, ref = null, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    try {
+      const params = { owner, repo, path };
+      if (ref) params.ref = ref;
+
+      const { data } = await this.octokit.rest.repos.getContent(params);
+
+      // Handle file vs directory
+      if (Array.isArray(data)) {
+        // It's a directory
+        return {
+          type: 'directory',
+          entries: data.map(item => ({
+            name: item.name,
+            path: item.path,
+            type: item.type,
+            size: item.size,
+            sha: item.sha
+          }))
+        };
+      }
+
+      // It's a file - decode content
+      const content = data.encoding === 'base64'
+        ? Buffer.from(data.content, 'base64').toString('utf-8')
+        : data.content;
+
+      return {
+        type: 'file',
+        content,
+        sha: data.sha,
+        size: data.size,
+        path: data.path,
+        encoding: data.encoding
+      };
+    } catch (error) {
+      if (error.status === 404) {
+        return { type: 'not_found', path };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Create or update a file in the repository
+   * This performs commit + push in a single API call
+   */
+  async createOrUpdateFile(path, content, message, branch = null, sha = null, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+    branch = branch || 'main';
+
+    // If no SHA provided, try to get existing file's SHA
+    if (!sha) {
+      try {
+        const existing = await this.getFileContents(path, branch, owner, repo);
+        if (existing.type === 'file') {
+          sha = existing.sha;
+        }
+      } catch {
+        // File doesn't exist, that's fine for create
+      }
+    }
+
+    // Encode content to base64
+    const encodedContent = Buffer.from(content, 'utf-8').toString('base64');
+
+    const params = {
+      owner,
+      repo,
+      path,
+      message,
+      content: encodedContent,
+      branch
+    };
+
+    if (sha) {
+      params.sha = sha;
+    }
+
+    const { data } = await this.octokit.rest.repos.createOrUpdateFileContents(params);
+
+    logger.info('File committed to GitHub', {
+      path,
+      branch,
+      commitSha: data.commit.sha,
+      operation: sha ? 'update' : 'create'
+    });
+
+    // Invalidate tree cache for this branch
+    this.treeCache.delete(`${owner}/${repo}/${branch}`);
+
+    return {
+      commit: {
+        sha: data.commit.sha,
+        message: data.commit.message,
+        url: data.commit.html_url
+      },
+      content: {
+        sha: data.content.sha,
+        path: data.content.path
+      }
+    };
+  }
+
+  /**
+   * Delete a file from the repository
+   */
+  async deleteFile(path, message, branch, sha, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.deleteFile({
+      owner,
+      repo,
+      path,
+      message,
+      sha,
+      branch
+    });
+
+    logger.info('File deleted from GitHub', {
+      path,
+      branch,
+      commitSha: data.commit.sha
+    });
+
+    // Invalidate tree cache
+    this.treeCache.delete(`${owner}/${repo}/${branch}`);
+
+    return {
+      commit: {
+        sha: data.commit.sha,
+        message
+      }
+    };
+  }
+
+  /**
+   * Get the full repository tree (cached)
+   * Single API call returns entire repo structure
+   */
+  async getTree(branch = 'main', owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const cacheKey = `${owner}/${repo}/${branch}`;
+    const cached = this.treeCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.timestamp < this.treeCacheExpiry) {
+      return cached.tree;
+    }
+
+    // Get branch SHA
+    const { data: branchData } = await this.octokit.rest.repos.getBranch({
+      owner,
+      repo,
+      branch
+    });
+
+    // Get tree recursively
+    const { data } = await this.octokit.rest.git.getTree({
+      owner,
+      repo,
+      tree_sha: branchData.commit.sha,
+      recursive: 'true'
+    });
+
+    // Evict old cache entries if over limit
+    if (this.treeCache.size >= this.MAX_CACHE_SIZE) {
+      const oldestKey = this.treeCache.keys().next().value;
+      this.treeCache.delete(oldestKey);
+    }
+
+    // Cache the result
+    this.treeCache.set(cacheKey, {
+      tree: data.tree,
+      timestamp: Date.now()
+    });
+
+    return data.tree;
+  }
+
+  /**
+   * List commits for a branch
+   */
+  async listCommits(branch = 'main', limit = 20, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.listCommits({
+      owner,
+      repo,
+      sha: branch,
+      per_page: Math.min(limit, 100)
+    });
+
+    return data.map(commit => ({
+      sha: commit.sha,
+      message: commit.commit.message,
+      author: commit.commit.author.name,
+      date: commit.commit.author.date,
+      url: commit.html_url
+    }));
+  }
+
+  /**
+   * Get a specific commit
+   */
+  async getCommit(sha, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.repos.getCommit({
+      owner,
+      repo,
+      ref: sha
+    });
+
+    return {
+      sha: data.sha,
+      message: data.commit.message,
+      author: data.commit.author,
+      files: data.files?.map(f => ({
+        filename: f.filename,
+        status: f.status,
+        additions: f.additions,
+        deletions: f.deletions
+      }))
+    };
+  }
+
+  /**
+   * Create a pull request
+   */
+  async createPullRequest(title, head, base, body = '', owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.pulls.create({
+      owner,
+      repo,
+      title,
+      head,
+      base,
+      body
+    });
+
+    logger.info('Pull request created', {
+      number: data.number,
+      title,
+      head,
+      base
+    });
+
+    return {
+      number: data.number,
+      url: data.html_url,
+      title: data.title,
+      state: data.state
+    };
+  }
+
+  /**
+   * Search code in repository
+   */
+  async searchCode(query, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.search.code({
+      q: `${query} repo:${owner}/${repo}`,
+      per_page: 30
+    });
+
+    return data.items.map(item => ({
+      path: item.path,
+      name: item.name,
+      sha: item.sha,
+      url: item.html_url,
+      repository: item.repository.full_name
+    }));
+  }
+
+  /**
+   * List GitHub Actions workflows
+   */
+  async listWorkflows(owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.actions.listRepoWorkflows({
+      owner,
+      repo
+    });
+
+    return data.workflows.map(w => ({
+      id: w.id,
+      name: w.name,
+      path: w.path,
+      state: w.state
+    }));
+  }
+
+  /**
+   * Trigger a workflow dispatch
+   */
+  async triggerWorkflow(workflowId, ref = 'main', inputs = {}, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    await this.octokit.rest.actions.createWorkflowDispatch({
+      owner,
+      repo,
+      workflow_id: workflowId,
+      ref,
+      inputs
+    });
+
+    logger.info('Workflow triggered', { workflowId, ref });
+
+    return { triggered: true, workflowId, ref };
+  }
+
+  /**
+   * Get workflow run status
+   */
+  async getWorkflowRun(runId, owner = null, repo = null) {
+    await this.initialize();
+    owner = owner || this.config.defaultOwner;
+    repo = repo || this.config.defaultRepo;
+
+    const { data } = await this.octokit.rest.actions.getWorkflowRun({
+      owner,
+      repo,
+      run_id: runId
+    });
+
+    return {
+      id: data.id,
+      status: data.status,
+      conclusion: data.conclusion,
+      workflowId: data.workflow_id,
+      branch: data.head_branch,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      url: data.html_url
+    };
+  }
+
+  /**
+   * Get rate limit status
+   */
+  async getRateLimit() {
+    await this.initialize();
+
+    const { data } = await this.octokit.rest.rateLimit.get();
+
+    return {
+      limit: data.rate.limit,
+      remaining: data.rate.remaining,
+      reset: new Date(data.rate.reset * 1000).toISOString(),
+      used: data.rate.used
+    };
+  }
+}
+
+// Singleton instance
+let githubServiceInstance = null;
+
+function getGitHubService() {
+  if (!githubServiceInstance) {
+    githubServiceInstance = new GitHubService();
+  }
+  return githubServiceInstance;
+}
+
+module.exports = {
+  GitHubService,
+  getGitHubService
+};

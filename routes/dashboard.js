@@ -20,6 +20,7 @@ const { verifyToken } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
 const { getConfigManager } = require('../services/dashboard/configManager');
 const { getFirestore } = require('../config/firestore');
+const { getBuildModeManager } = require('../services/build/buildModeManager');
 
 // CSRF token generation middleware
 router.use((req, res, next) => {
@@ -91,6 +92,16 @@ router.use(async (req, res, next) => {
   } catch (error) {
     // Fallback to env var or default if config loading fails
     res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
+  }
+
+  // Check if Build Mode is enabled globally (for sidebar styling)
+  try {
+    const buildModeManager = getBuildModeManager();
+    const buildModeEnabled = await buildModeManager.isBuildModeEnabled();
+    res.locals.buildModeEnabled = buildModeEnabled;
+  } catch (error) {
+    // Build mode not available or error checking
+    res.locals.buildModeEnabled = false;
   }
 
   next();
@@ -405,6 +416,26 @@ router.get('/tools', async (req, res) => {
       userId: req.user.id
     });
     req.flash('error', 'Failed to load tools');
+    res.redirect('/dashboard');
+  }
+});
+
+/**
+ * Build Mode Dashboard
+ * GET /dashboard/build
+ */
+router.get('/build', async (req, res) => {
+  try {
+    res.locals.currentPage = 'build';
+    res.locals.title = 'Build Mode';
+
+    res.render('dashboard/build');
+  } catch (error) {
+    logger.error('Build dashboard error', {
+      error: error.message,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load build mode dashboard');
     res.redirect('/dashboard');
   }
 });

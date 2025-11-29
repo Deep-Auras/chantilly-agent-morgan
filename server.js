@@ -29,6 +29,7 @@ const setupRoutes = require('./routes/setup');
 const bitrixWebhook = require('./webhooks/bitrix');
 const googleChatRoutes = require('./routes/googleChat');
 const asanaRoutes = require('./routes/asana');
+const buildRoutes = require('./routes/build');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -516,6 +517,10 @@ app.use('/agent', agentRoutes);
 
 // Knowledge base routes
 app.use('/knowledge', knowledgeRoutes);
+
+// Build mode routes (GitHub integration, code modification)
+app.use('/api/build', buildRoutes);
+logger.info('Build mode routes registered at /api/build');
 
 // Worker routes for Cloud Tasks background processing
 app.use('/worker', workerRoutes);
