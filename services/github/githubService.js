@@ -29,6 +29,8 @@ class GitHubService {
     if (this.initialized) return;
 
     try {
+      logger.info('Initializing GitHub service...');
+
       // Load config from Firestore
       const configDoc = await this.db.doc('agent/platforms/github/config').get();
 
@@ -38,6 +40,14 @@ class GitHubService {
       }
 
       this.config = configDoc.data();
+      logger.info('GitHub config loaded for initialization', {
+        enabled: this.config.enabled,
+        authType: this.config.authType,
+        defaultOwner: this.config.defaultOwner,
+        defaultRepo: this.config.defaultRepo,
+        hasAppId: !!this.config.appId,
+        hasInstallationId: !!this.config.installationId
+      });
 
       if (!this.config.enabled) {
         logger.info('GitHub integration is disabled');
@@ -50,6 +60,10 @@ class GitHubService {
         throw new Error('Credentials document not found');
       }
       const credentials = credentialsDoc.data();
+      logger.info('Credentials document loaded', {
+        hasGithubAccessToken: !!credentials.github_access_token,
+        hasGithubPrivateKey: !!credentials.github_private_key
+      });
 
       // Get encryption service
       const encryption = getEncryption();
@@ -84,19 +98,36 @@ class GitHubService {
         }
         const privateKey = encryption.decryptCredential(encryptedPrivateKey);
 
+        // Both App ID and Installation ID are numeric
+        const numericAppId = parseInt(appId, 10);
+        const numericInstallationId = parseInt(installationId, 10);
+
+        if (isNaN(numericAppId)) {
+          throw new Error('App ID must be a valid number (found in GitHub App settings)');
+        }
+        if (isNaN(numericInstallationId)) {
+          throw new Error('Installation ID must be a valid number (found in installation URL)');
+        }
+
+        logger.info('Creating GitHub App Octokit instance', {
+          appId: numericAppId,
+          installationId: numericInstallationId,
+          privateKeyLength: privateKey?.length
+        });
+
         // Create Octokit with GitHub App authentication
         this.octokit = new Octokit({
           authStrategy: createAppAuth,
           auth: {
-            appId: appId,
+            appId: numericAppId,
             privateKey: privateKey,
-            installationId: installationId
+            installationId: numericInstallationId
           }
         });
 
         logger.info('GitHub App authentication configured', {
-          appId,
-          installationId
+          appId: numericAppId,
+          installationId: numericInstallationId
         });
       } else {
         throw new Error('Invalid GitHub authentication configuration');
@@ -132,8 +163,17 @@ class GitHubService {
   async isEnabled() {
     // Always read fresh config to detect changes
     const configDoc = await this.db.doc('agent/platforms/github/config').get();
-    if (!configDoc.exists) return false;
+    if (!configDoc.exists) {
+      logger.info('GitHub config document does not exist');
+      return false;
+    }
     this.config = configDoc.data();
+    logger.info('GitHub config loaded', {
+      enabled: this.config?.enabled,
+      authType: this.config?.authType,
+      hasOwner: !!this.config?.defaultOwner,
+      hasRepo: !!this.config?.defaultRepo
+    });
     return this.config?.enabled === true;
   }
 

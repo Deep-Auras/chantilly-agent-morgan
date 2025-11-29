@@ -232,9 +232,13 @@ html(lang="en")
               if (response.ok) {
                 const data = await response.json();
                 this.buildModeAvailable = data.connected === true;
+                console.log('Build mode status:', data);
+              } else {
+                console.error('Build mode check failed:', response.status, response.statusText);
+                this.buildModeAvailable = false;
               }
             } catch (e) {
-              // Build mode not available
+              console.error('Build mode check error:', e);
               this.buildModeAvailable = false;
             }
 

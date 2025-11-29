@@ -273,8 +273,9 @@ block content
             input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
               type="text"
               x-model="github.appId"
-              placeholder="123456"
+              placeholder="1234567"
             )
+            p.text-xs.text-gray-500.mt-1 Found in GitHub App settings page (numeric ID, not Client ID)
 
           div(x-show="github.enabled && github.authType === 'github-app'")
             label.block.text-sm.font-medium.text-gray-700.mb-2 Installation ID
@@ -283,6 +284,7 @@ block content
               x-model="github.installationId"
               placeholder="12345678"
             )
+            p.text-xs.text-gray-500.mt-1 Found in the URL when you install the app: github.com/settings/installations/[ID]
 
           div(x-show="github.enabled && github.authType === 'github-app'")
             label.block.text-sm.font-medium.text-gray-700.mb-2 Private Key
@@ -291,7 +293,7 @@ block content
               x-model="github.privateKey"
               :placeholder="hasGithubPrivateKey ? '••••••••••••••••••••• (configured)' : '-----BEGIN RSA PRIVATE KEY-----\\n...\\n-----END RSA PRIVATE KEY-----'"
             )
-            p.text-xs.text-gray-500.mt-1 Paste the contents of your .pem file
+            p.text-xs.text-gray-500.mt-1 Paste the full contents of your .pem file including headers
 
           //- Repository settings (shown for both auth types)
           div(x-show="github.enabled")

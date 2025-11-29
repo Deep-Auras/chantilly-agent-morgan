@@ -521,6 +521,12 @@ dashboardApiRouter.get('/activity', async (req, res) => {
         }
       }
 
+      // Format timestamp as string for dashboard overview display
+      let timestampStr = 'Unknown';
+      if (timestamp && timestamp.seconds) {
+        timestampStr = new Date(timestamp.seconds * 1000).toLocaleString();
+      }
+
       return {
         id: doc.id,
         // Legacy field for dashboard overview compatibility
@@ -530,6 +536,7 @@ dashboardApiRouter.get('/activity', async (req, res) => {
         username: data.username,
         userId: data.userId,
         timestamp: timestamp,
+        timestampStr: timestampStr, // Formatted string for overview display
         entryId: data.entryId,
         toolName: data.toolName,
         section: data.section,

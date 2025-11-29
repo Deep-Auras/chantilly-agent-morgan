@@ -817,8 +817,15 @@ router.post('/modifications/:modId/reject', requireBuildAccess, async (req, res)
  */
 router.get('/github/status', async (req, res) => {
   try {
+    logger.info('GitHub status check requested', {
+      userId: req.user?.id,
+      username: req.user?.username
+    });
+
     const githubService = getGitHubService();
     const isEnabled = await githubService.isEnabled();
+
+    logger.info('GitHub isEnabled check', { isEnabled });
 
     if (!isEnabled) {
       return res.json({
@@ -831,17 +838,24 @@ router.get('/github/status', async (req, res) => {
 
     const verification = await githubService.verifyConnection();
 
+    logger.info('GitHub verification result', {
+      connected: verification.connected,
+      error: verification.error
+    });
+
     res.json({
       success: true,
       ...verification
     });
   } catch (error) {
     logger.error('Failed to check GitHub status', {
-      error: error.message
+      error: error.message,
+      stack: error.stack
     });
     res.status(500).json({
       success: false,
-      error: 'Failed to check GitHub status'
+      error: 'Failed to check GitHub status',
+      details: error.message
     });
   }
 });
