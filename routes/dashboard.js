@@ -20,7 +20,6 @@ const { verifyToken } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
 const { getConfigManager } = require('../services/dashboard/configManager');
 const { getFirestore } = require('../config/firestore');
-const { getBuildModeManager } = require('../services/build/buildModeManager');
 
 // CSRF token generation middleware
 router.use((req, res, next) => {
@@ -95,7 +94,9 @@ router.use(async (req, res, next) => {
   }
 
   // Check if Build Mode is enabled globally (for sidebar styling)
+  // Lazy require to avoid loading GitHub service chain on startup
   try {
+    const { getBuildModeManager } = require('../services/build/buildModeManager');
     const buildModeManager = getBuildModeManager();
     const buildModeEnabled = await buildModeManager.isBuildModeEnabled();
     res.locals.buildModeEnabled = buildModeEnabled;
