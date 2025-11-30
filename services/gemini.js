@@ -767,51 +767,83 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         }
       }
 
-      const finalRequestConfig = {
-        model: getGeminiModelName(),
-        contents: [
-          {
-            role: 'user',
-            parts: [{
-              text: prompt
-            }]
-          },
-          {
-            role: 'model',
-            parts: [{
-              text: 'I\'ll help you with that. Let me use the appropriate tools.'
-            }]
-          },
-          {
-            role: 'user',
-            parts: [{
-              text: isPhotoResponse ?
-                `I found visitor photos with actual URLs. Here's the formatted response: ${photoToolResult.result}\n\nIMPORTANT: You MUST preserve ALL photo URLs exactly as provided. Add helpful annotations, context about the locations, or interesting details about what visitors might see, but keep every single [Photo X](URL) link intact. DO NOT create generic text - use the actual response with URLs.` :
-                `Tool execution results:\n${toolResults.map(tr => {
-                  // CRITICAL: Check for errors FIRST and format them explicitly
-                  if (tr.error) {
-                    return `❌ ERROR - Tool "${tr.name}" FAILED:\n${tr.error}\n\nThe tool did NOT complete successfully. You MUST inform the user that the operation failed with this error message. DO NOT generate fake successful results.`;
-                  }
-                  // If result is already a formatted string, use it as-is
-                  if (typeof tr.result === 'string') {
-                    return tr.result;
-                  }
-                  // If result is an object with a message field, use that for user-friendly display
-                  if (tr.result && typeof tr.result === 'object' && tr.result.message) {
-                    return tr.result.message;
-                  }
-                  // If result is an object/array without message field, format it for display
-                  return JSON.stringify(tr.result, null, 2);
-                }).join('\n\n')}\n\nCRITICAL INSTRUCTIONS:
+      // Build proper function calling conversation structure
+      // This uses functionResponse parts instead of plain text for tool results
+      const modelFunctionCallParts = toolCalls.map(tc => ({
+        functionCall: {
+          name: tc.name,
+          args: tc.args
+        }
+      }));
+
+      // Build functionResponse parts for each tool result
+      const functionResponseParts = toolResults.map(tr => {
+        let responseData;
+        if (tr.error) {
+          responseData = { error: tr.error, success: false };
+        } else if (typeof tr.result === 'string') {
+          responseData = { content: tr.result, success: true };
+        } else if (tr.result && typeof tr.result === 'object') {
+          responseData = { ...tr.result, success: true };
+        } else {
+          responseData = { result: tr.result, success: true };
+        }
+        return {
+          functionResponse: {
+            name: tr.name,
+            response: responseData
+          }
+        };
+      });
+
+      logger.info('Building final request with proper function calling structure', {
+        modelFunctionCallParts: modelFunctionCallParts.length,
+        functionResponseParts: functionResponseParts.length,
+        isPhotoResponse
+      });
+
+      // Special handling for photo responses - add instruction as additional user message
+      const finalContents = [
+        {
+          role: 'user',
+          parts: [{ text: prompt }]
+        },
+        {
+          role: 'model',
+          parts: modelFunctionCallParts
+        },
+        {
+          role: 'user',
+          parts: functionResponseParts
+        }
+      ];
+
+      // Add follow-up instruction for photo responses or to guide response format
+      if (isPhotoResponse) {
+        finalContents.push({
+          role: 'user',
+          parts: [{
+            text: `IMPORTANT: You MUST preserve ALL photo URLs exactly as provided. Add helpful annotations, context about the locations, or interesting details about what visitors might see, but keep every single [Photo X](URL) link intact. DO NOT create generic text - use the actual response with URLs.`
+          }]
+        });
+      } else {
+        finalContents.push({
+          role: 'user',
+          parts: [{
+            text: `CRITICAL INSTRUCTIONS for responding:
 1. If the tool returned a formatted message starting with ✅ or containing "Posted to Bluesky" or "created successfully" - the action is ALREADY COMPLETE. DO NOT say "here's a draft" or "for your review". The tool EXECUTED the action.
 2. If the tool says it posted/created/updated something, relay that EXACTLY. DO NOT rewrite success messages as drafts or suggestions.
 3. If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists.
 4. If the tool returned a formatted text message, present it exactly as written.
 5. DO NOT fabricate structured data or additional fields that were not in the actual tool output.
 6. DO NOT add phrases like "I've drafted", "for your review", "let me know if you'd like to post" when the tool already performed the action.`
-            }]
-          }
-        ],
+          }]
+        });
+      }
+
+      const finalRequestConfig = {
+        model: getGeminiModelName(),
+        contents: finalContents,
         config: {
           generationConfig: {
             temperature: 0.7,

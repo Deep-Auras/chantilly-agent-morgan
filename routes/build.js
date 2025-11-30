@@ -15,11 +15,15 @@ const { getFirestore, getFieldValue } = require('../config/firestore');
 const { logger } = require('../utils/logger');
 
 // Decode HTML entities that may be introduced by frontend frameworks
+// Handles both single and double-encoding (from sanitizeInput middleware)
 function decodeHtmlEntities(str) {
   if (!str || typeof str !== 'string') {
     return str;
   }
-  return str
+  // First pass: decode &amp; to & (handles double-encoding)
+  let decoded = str.replace(/&amp;/gi, '&');
+  // Second pass: decode all HTML entities
+  decoded = decoded
     .replace(/&#x2F;/gi, '/')    // Forward slash
     .replace(/&#47;/g, '/')       // Forward slash (decimal)
     .replace(/&#x5C;/gi, '\\')   // Backslash
@@ -28,8 +32,8 @@ function decodeHtmlEntities(str) {
     .replace(/&#39;/g, '\'')      // Single quote (decimal)
     .replace(/&lt;/gi, '<')
     .replace(/&gt;/gi, '>')
-    .replace(/&amp;/gi, '&')      // Must be last
     .replace(/&quot;/gi, '"');
+  return decoded;
 }
 
 // Path traversal validation helper
