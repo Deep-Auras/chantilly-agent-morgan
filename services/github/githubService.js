@@ -65,9 +65,9 @@ class GitHubService {
         hasGithubPrivateKey: !!credentials.github_private_key
       });
 
-      // Get encryption service
+      // Get encryption service (async initialization from Firestore)
       const encryption = getEncryption();
-      if (!encryption.isEnabled()) {
+      if (!await encryption.isEnabledAsync()) {
         throw new Error('Encryption not enabled, cannot decrypt GitHub credentials');
       }
 

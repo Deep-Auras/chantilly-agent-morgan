@@ -51,7 +51,7 @@ class ConfigManager {
       this.initialized = true;
       logger.info('ConfigManager initialized', {
         cacheTTL: `${this.cacheTimeout / 1000}s`,
-        encryptionEnabled: this.encryption.isEnabled()
+        encryptionEnabled: await this.encryption.isEnabledAsync()
       });
     } catch (error) {
       logger.error('ConfigManager initialization failed', {
