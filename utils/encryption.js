@@ -59,9 +59,11 @@ class Encryption {
         return;
       }
 
-      const keyBase64 = configDoc.data().credentialEncryptionKey;
+      // Support both field names for backwards compatibility
+      const data = configDoc.data();
+      const keyBase64 = data.CREDENTIAL_ENCRYPTION_KEY || data.credentialEncryptionKey;
       if (!keyBase64) {
-        logger.warn('credentialEncryptionKey not set in Firestore, encryption disabled');
+        logger.warn('CREDENTIAL_ENCRYPTION_KEY not set in Firestore, encryption disabled');
         this.initialized = true;
         return;
       }

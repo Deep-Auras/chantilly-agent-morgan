@@ -112,13 +112,13 @@ block content
             .flex.gap-2
               input.flex-1.px-3.py-2.border.border-gray-300.rounded-lg.font-mono.text-sm(
                 type="password"
-                x-model="securityKeys.credentialEncryptionKey"
+                x-model="securityKeys.CREDENTIAL_ENCRYPTION_KEY"
                 :placeholder="hasEncryptionKey ? '••••••••••••••••••••• (configured)' : 'Auto-generated if not provided'"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               )
               button.px-4.py-2.bg-green-600.text-white.rounded-lg(
                 type="button"
-                @click="generateSecret('credentialEncryptionKey')"
+                @click="generateSecret('CREDENTIAL_ENCRYPTION_KEY')"
                 class="hover:bg-green-700"
               ) Generate
 
@@ -623,14 +623,14 @@ block content
         securityKeys: {
           jwtSecret: '',
           sessionSecret: '',
-          credentialEncryptionKey: ''
+          CREDENTIAL_ENCRYPTION_KEY: ''
         },
         hasJwtSecret: #{!!config.jwtSecret},
         hasDashboardSecret: #{!!config.sessionSecret},
-        hasEncryptionKey: #{!!config.credentialEncryptionKey},
+        hasEncryptionKey: #{!!config.CREDENTIAL_ENCRYPTION_KEY},
         geminiConfig: {
-          GEMINI_MODEL: '#{config.GEMINI_MODEL || "gemini-2.5-pro"}',
-          VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || "us-central1"}'
+          GEMINI_MODEL: '#{config.GEMINI_MODEL || ""}',
+          VERTEX_AI_LOCATION: '#{config.VERTEX_AI_LOCATION || ""}'
         },
         systemConfig: {
           FIRESTORE_DATABASE_ID: '#{config.FIRESTORE_DATABASE_ID || "(default)"}',

@@ -27,8 +27,8 @@ class FileStorageManager {
       const db = getFirestore();
       const configDoc = await db.collection('agent').doc('config').get();
 
-      if (configDoc.exists && configDoc.data().gcsBucketName) {
-        this.bucketName = configDoc.data().gcsBucketName;
+      if (configDoc.exists && configDoc.data().GCS_BUCKET_NAME) {
+        this.bucketName = configDoc.data().GCS_BUCKET_NAME;
       } else {
         this.bucketName = 'chantilly-adk-files'; // Default fallback
       }
