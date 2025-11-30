@@ -478,6 +478,8 @@ block content
               this.currentBranch = this.newBranchName;
               this.showNewBranchModal = false;
               this.newBranchName = '';
+              // Persist the branch switch to database
+              await this.switchBranch();
             } else {
               alert(data.error || 'Failed to create branch');
             }
