@@ -912,6 +912,13 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
             topK: 40,
             topP: 0.95,
             maxOutputTokens: 65536 // Maximum for Gemini 2.5 Pro - allows full transcripts
+          },
+          // Explicitly disable function calling to force text generation
+          // This prevents UNEXPECTED_TOOL_CALL errors when model wants more tools
+          toolConfig: {
+            functionCallingConfig: {
+              mode: 'NONE'
+            }
           }
         }
       };

@@ -1515,9 +1515,9 @@ router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
     logger.info('Initializing chat service', { userId: req.user.id });
     const chatService = await require('../services/chatService').initializeChatService();
 
-    logger.info('Starting SSE stream', { userId: req.user.id, conversationId });
-    // Stream response via SSE
-    await chatService.streamResponse(res, req.user.id, message, conversationId);
+    logger.info('Starting SSE stream', { userId: req.user.id, userRole: req.user.role, conversationId });
+    // Stream response via SSE - pass user role to avoid bitrix_users lookup
+    await chatService.streamResponse(res, req.user.id, message, conversationId, req.user.role);
 
     logger.info('SSE stream completed', { userId: req.user.id });
 

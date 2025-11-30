@@ -190,8 +190,9 @@ class ChatService {
    * @param {string} userId - User ID
    * @param {string} userMessage - User's message
    * @param {string} conversationId - Conversation ID
+   * @param {string} [providedUserRole] - Optional pre-determined user role (skips lookup)
    */
-  async streamResponse(res, userId, userMessage, conversationId) {
+  async streamResponse(res, userId, userMessage, conversationId, providedUserRole = null) {
     if (!this.initialized) {
       await this.initialize();
     }
@@ -293,8 +294,13 @@ class ChatService {
       });
 
       // Determine user role for RBAC
-      const userRoleService = getUserRoleService();
-      const userRole = await userRoleService.getUserRole(userId);
+      // Use provided role if available (from dashboard), otherwise lookup from Firestore
+      let userRole = providedUserRole;
+      if (!userRole) {
+        const userRoleService = getUserRoleService();
+        userRole = await userRoleService.getUserRole(userId);
+      }
+      logger.info('User role determined for RBAC', { userId, userRole, wasProvided: !!providedUserRole });
 
       // Send start event
       res.write('event: start\ndata: {"status": "streaming"}\n\n');
