@@ -143,8 +143,12 @@ app.use(helmet({
   }
 }));
 app.use(compression());
+
+// CORS: Dashboard and API are same-origin (same Cloud Run service), so CORS is only
+// needed for local development. Allow all origins since webhooks are server-to-server
+// and don't use CORS anyway.
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || false,
+  origin: true, // Reflect request origin (allows all)
   credentials: true,
   maxAge: 86400 // 24 hours
 }));

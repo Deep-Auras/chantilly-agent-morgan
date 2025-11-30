@@ -5,6 +5,7 @@ let geminiClient;
 let model;
 let geminiModelName;
 let geminiApiKey;
+let vertexAILocation;
 
 /**
  * Load Gemini configuration from Firestore ONLY
@@ -42,13 +43,15 @@ async function loadGeminiConfig() {
 
     geminiApiKey = data.GEMINI_API_KEY;
     geminiModelName = data.GEMINI_MODEL;
+    vertexAILocation = data.VERTEX_AI_LOCATION || 'us-central1';
 
     logger.info('Loaded Gemini config from Firestore', {
       model: geminiModelName,
-      hasApiKey: true
+      hasApiKey: true,
+      vertexAILocation: vertexAILocation
     });
 
-    return { apiKey: geminiApiKey, model: geminiModelName };
+    return { apiKey: geminiApiKey, model: geminiModelName, location: vertexAILocation };
   } catch (error) {
     logger.error('Failed to load Gemini config from Firestore', {
       error: error.message,
@@ -266,11 +269,15 @@ async function getVertexAIClient() {
     vertexAIClient = new GoogleGenAI({
       vertexai: true,  // CRITICAL: lowercase 'ai', boolean value (per official Google Cloud docs)
       project: projectId,
-      location: process.env.VERTEX_AI_LOCATION || 'us-central1'
+      location: vertexAILocation || 'us-central1'
     });
     logger.info('Vertex AI client initialized for YouTube URL support', { projectId });
   }
   return vertexAIClient;
+}
+
+function getVertexAILocation() {
+  return vertexAILocation || 'us-central1';
 }
 
 module.exports = {
@@ -279,6 +286,7 @@ module.exports = {
   getGeminiClient,
   getGeminiModelName,
   getVertexAIClient,
+  getVertexAILocation,
   createCustomModel,
   extractGeminiText
 };

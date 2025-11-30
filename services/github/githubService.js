@@ -79,7 +79,7 @@ class GitHubService {
         if (!encryptedToken) {
           throw new Error('GitHub access token not found in credentials');
         }
-        const accessToken = encryption.decryptCredential(encryptedToken);
+        const accessToken = await encryption.decryptCredential(encryptedToken);
 
         this.octokit = new Octokit({
           auth: accessToken
@@ -96,7 +96,7 @@ class GitHubService {
         if (!encryptedPrivateKey) {
           throw new Error('GitHub private key not found in credentials');
         }
-        const privateKey = encryption.decryptCredential(encryptedPrivateKey);
+        const privateKey = await encryption.decryptCredential(encryptedPrivateKey);
 
         // Both App ID and Installation ID are numeric
         const numericAppId = parseInt(appId, 10);

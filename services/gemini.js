@@ -232,12 +232,12 @@ class GeminiService {
       let rbacSystem = 'bitrix24'; // Default to original behavior
 
       try {
-        const rbacDoc = await this.db.collection('agent').doc('rbac').get();
-        if (rbacDoc.exists && rbacDoc.data().system) {
-          rbacSystem = rbacDoc.data().system;
+        const configDoc = await this.db.collection('agent').doc('config').get();
+        if (configDoc.exists && configDoc.data().rbacProvider) {
+          rbacSystem = configDoc.data().rbacProvider;
         }
       } catch (error) {
-        logger.warn('Could not load RBAC system config from Firestore, using default', {
+        logger.warn('Could not load RBAC config from Firestore, using default', {
           error: error.message,
           default: rbacSystem
         });
@@ -1025,7 +1025,7 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
    */
   async checkForToolsSemantic(message, messageData = {}, knowledgeResults = []) {
     logger.warn('DEPRECATED: checkForToolsSemantic() still uses regex validation. Use AI-based detection instead.');
-    const useSemanticTools = FeatureFlags.shouldUseSemanticTools();
+    const useSemanticTools = await FeatureFlags.shouldUseSemanticTools();
 
     if (!useSemanticTools) {
       logger.info('Semantic tool detection disabled by feature flag, using keyword matching');

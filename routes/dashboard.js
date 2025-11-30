@@ -83,14 +83,15 @@ router.use(async (req, res, next) => {
     res.locals.user = req.user;
   }
 
-  // Load agent name from database config (falls back to env var, then default)
+  // Load agent name from database config (NO ENV VAR FALLBACK)
   try {
     const configManager = await getConfigManager();
     const config = await configManager.get('config');
-    res.locals.agentName = config?.AGENT_NAME || process.env.AGENT_NAME || 'Clementine';
+    res.locals.agentName = config?.AGENT_NAME || 'Clementine';
   } catch (error) {
-    // Fallback to env var or default if config loading fails
-    res.locals.agentName = process.env.AGENT_NAME || 'Clementine';
+    // Fallback to default if config loading fails
+    res.locals.agentName = 'Clementine';
+    logger.warn('Failed to load agent name from Firestore config', { error: error.message });
   }
 
   // Check if Build Mode is enabled globally (for sidebar styling)

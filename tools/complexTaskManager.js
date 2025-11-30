@@ -167,7 +167,7 @@ class ComplexTaskManagerTool extends BaseTool {
    * This replaces keyword-based template detection
    */
   async findBestTemplate(description, userId) {
-    const useSemanticTemplates = FeatureFlags.shouldUseSemanticTemplates();
+    const useSemanticTemplates = await FeatureFlags.shouldUseSemanticTemplates();
 
     if (!useSemanticTemplates) {
       this.log('info', 'Semantic template matching disabled by feature flag, using keyword matching');
