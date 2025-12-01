@@ -8,7 +8,7 @@ const BaseTool = require('../../lib/baseTool');
 const { getGitHubService } = require('../../services/github/githubService');
 const { getBuildModeManager } = require('../../services/build/buildModeManager');
 const { getFirestore, getFieldValue } = require('../../config/firestore');
-const { isValidFilePath } = require('./pathValidation');
+const { isValidFilePath } = require('../../lib/pathValidation');
 
 class WriteFile extends BaseTool {
   constructor(context) {

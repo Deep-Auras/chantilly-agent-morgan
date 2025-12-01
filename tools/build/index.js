@@ -9,7 +9,7 @@ const Edit = require('./edit');
 const Glob = require('./glob');
 const Grep = require('./grep');
 const ListDirectory = require('./listDirectory');
-const pathValidation = require('./pathValidation');
+const pathValidation = require('../../lib/pathValidation');
 
 module.exports = {
   ReadFile,

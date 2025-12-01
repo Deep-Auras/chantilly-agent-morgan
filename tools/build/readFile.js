@@ -6,7 +6,7 @@
 const BaseTool = require('../../lib/baseTool');
 const { getGitHubService } = require('../../services/github/githubService');
 const { getBuildModeManager } = require('../../services/build/buildModeManager');
-const { isValidFilePath } = require('./pathValidation');
+const { isValidFilePath } = require('../../lib/pathValidation');
 
 class ReadFile extends BaseTool {
   constructor(context) {

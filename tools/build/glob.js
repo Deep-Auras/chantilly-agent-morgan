@@ -7,7 +7,7 @@
 const BaseTool = require('../../lib/baseTool');
 const { getGitHubService } = require('../../services/github/githubService');
 const { getBuildModeManager } = require('../../services/build/buildModeManager');
-const { isValidDirPath } = require('./pathValidation');
+const { isValidDirPath } = require('../../lib/pathValidation');
 
 class Glob extends BaseTool {
   constructor(context) {

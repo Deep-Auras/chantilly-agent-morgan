@@ -832,7 +832,9 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
         } else if (typeof tr.result === 'string') {
           responseData = { content: tr.result, success: true };
         } else if (tr.result && typeof tr.result === 'object') {
-          responseData = { ...tr.result, success: true };
+          // Preserve the tool's success field if it exists, otherwise default to true
+          const toolSuccess = tr.result.success !== undefined ? tr.result.success : true;
+          responseData = { ...tr.result, success: toolSuccess };
         } else {
           responseData = { result: tr.result, success: true };
         }
