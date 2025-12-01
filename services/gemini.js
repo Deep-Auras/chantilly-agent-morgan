@@ -507,7 +507,29 @@ class GeminiService {
       // Get the Gemini client directly (no conflicting tool config)
       const client = getGeminiClient();
 
-      // Prepare contents with history
+      // Prepare enhanced system instruction with tool usage guidance
+      let enhancedSystemInstruction = systemInstruction || '';
+      if (enhancedSystemInstruction) {
+        enhancedSystemInstruction += `
+
+CRITICAL TOOL USAGE RULES:
+- NEVER use action="search" when user wants to modify/append/add content to documents
+- ALWAYS use action="update" with appendContent parameter for append operations
+- For "append X to document Y": IMMEDIATELY call KnowledgeManagement with action="update", title="Y", appendContent="X"
+- NEVER search first, then update - do the update directly
+- Only use action="search" when user explicitly wants to find/look up information without modifying it
+
+TEMPLATE MODIFICATION RULES (TaskTemplateManager):
+- When user requests to modify/change/update a template's execution code/script:
+  * NEVER provide the full executionScript directly
+  * ALWAYS use templateUpdates.modificationRequest with a clear description of what to change
+  * Example: { "action": "modify", "templateId": "template_id", "templateUpdates": { "modificationRequest": "Add invoice card display sorted by date, include last 4 activities from customer/company, make invoice # clickable link" } }
+  * The tool will fetch current code and generate intelligent modifications
+- For simple metadata updates (name, description, enabled): use direct field updates
+- NEVER regenerate entire scripts from scratch - always use modificationRequest for code changes`;
+      }
+
+      // Prepare initial contents with history
       const contents = [];
 
       // Add few-shot identity examples FIRST (before conversation history)
@@ -528,456 +550,208 @@ class GeminiService {
         parts: [{ text: prompt }]
       });
 
-      // Configure request for Gemini 2.5 Pro with tools (2025 format)
-      // Let Gemini choose the appropriate tool based on semantic descriptions
-      const toolCallingConfig = {
-        mode: 'ANY'
-        // Do NOT set allowedFunctionNames - let Gemini choose based on tool descriptions
-      };
+      // Track all tool results across the loop
+      const allToolResults = [];
+      let loopDepth = 0;
+      const maxLoopDepth = maxDepth - currentDepth; // Remaining depth budget
 
-      const requestConfig = {
-        model: getGeminiModelName(),
-        contents: contents,
-        config: {
-          tools: [{
-            functionDeclarations: toolDeclarations
-          }],
-          toolConfig: {
-            functionCallingConfig: toolCallingConfig
-          },
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 1024
-          }
-        }
-      };
-
-      // Add system instruction if provided
-      if (systemInstruction) {
-        // Enhance system instruction with tool usage guidance
-        const enhancedSystemInstruction = systemInstruction + `
-
-CRITICAL TOOL USAGE RULES:
-- NEVER use action="search" when user wants to modify/append/add content to documents
-- ALWAYS use action="update" with appendContent parameter for append operations
-- For "append X to document Y": IMMEDIATELY call KnowledgeManagement with action="update", title="Y", appendContent="X"
-- NEVER search first, then update - do the update directly
-- Only use action="search" when user explicitly wants to find/look up information without modifying it
-
-TEMPLATE MODIFICATION RULES (TaskTemplateManager):
-- When user requests to modify/change/update a template's execution code/script:
-  * NEVER provide the full executionScript directly
-  * ALWAYS use templateUpdates.modificationRequest with a clear description of what to change
-  * Example: { "action": "modify", "templateId": "template_id", "templateUpdates": { "modificationRequest": "Add invoice card display sorted by date, include last 4 activities from customer/company, make invoice # clickable link" } }
-  * The tool will fetch current code and generate intelligent modifications
-- For simple metadata updates (name, description, enabled): use direct field updates
-- NEVER regenerate entire scripts from scratch - always use modificationRequest for code changes`;
-
-        requestConfig.config.systemInstruction = enhancedSystemInstruction;
-      }
-
-      logger.info(`Sending request to ${getGeminiModelName()}`, {
-        hasTools: !!requestConfig.config?.tools,
-        toolCount: toolDeclarations.length,
-        hasSystemInstruction: !!systemInstruction,
-        model: getGeminiModelName(),
-        toolDeclarations: JSON.stringify(toolDeclarations, null, 2),
-        requestStructure: {
-          hasModel: !!requestConfig.model,
-          hasContents: !!requestConfig.contents,
-          hasConfig: !!requestConfig.config,
-          hasTools: !!requestConfig.config?.tools,
-          hasToolConfig: !!requestConfig.config?.toolConfig,
-          hasFunctionCallingConfig: !!requestConfig.config?.toolConfig?.functionCallingConfig,
-          mode: requestConfig.config?.toolConfig?.functionCallingConfig?.mode,
-          hasGenerationConfig: !!requestConfig.config?.generationConfig,
-          hasSystemInstruction: !!requestConfig.config?.systemInstruction
-        }
+      logger.info('Starting tool chaining loop', {
+        currentDepth,
+        maxDepth,
+        maxLoopDepth,
+        executionId
       });
 
-      const result = await client.models.generateContent(requestConfig);
+      // ============================================
+      // TOOL CHAINING LOOP (Official Gemini Pattern)
+      // Loop until Gemini returns text OR depth limit
+      // ============================================
+      while (loopDepth < maxLoopDepth) {
+        const isAtDepthLimit = (loopDepth >= maxLoopDepth - 1);
 
-      // The Gemini API returns the response directly in result, not result.response
-      const response = result;
-
-      // Debug the full result structure
-      logger.info('Full Gemini result structure', {
-        hasResult: !!result,
-        hasResponse: !!response,
-        resultKeys: result ? Object.keys(result) : 'result is null',
-        hasCandidates: !!result?.candidates,
-        firstCandidate: result?.candidates?.[0] ? Object.keys(result.candidates[0]) : 'no candidate',
-        contentParts: result?.candidates?.[0]?.content?.parts ?
-          result.candidates[0].content.parts.map(p => Object.keys(p)) : 'no parts'
-      });
-
-      // Handle different response structures for tool calls (2025 standard)
-      let toolCalls = [];
-      try {
-        // PRIMARY: Check candidates[0].content.parts for function_call (correct 2025 structure)
-        if (response?.candidates?.[0]?.content?.parts) {
-          const parts = response.candidates[0].content.parts;
-
-          logger.info('Examining content parts for function calls', {
-            partsCount: parts.length,
-            partsStructure: parts.map((part, idx) => ({
-              index: idx,
-              keys: Object.keys(part),
-              hasText: !!part.text,
-              hasFunctionCall: !!part.function_call,
-              hasFunctionCallCamel: !!part.functionCall
-            }))
-          });
-
-          for (const part of parts) {
-            // Check both function_call (snake_case) and functionCall (camelCase)
-            if (part.function_call) {
-              toolCalls.push({
-                name: part.function_call.name,
-                args: part.function_call.args || {}
-              });
-            } else if (part.functionCall) {  // camelCase format
-              toolCalls.push({
-                name: part.functionCall.name,
-                args: part.functionCall.args || {}
-              });
+        // Build request config - only disable tools at depth limit
+        const requestConfig = {
+          model: getGeminiModelName(),
+          contents: contents,
+          config: {
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 65536
             }
           }
-        }
-        // FALLBACK 2: Direct functionCalls method (very old structure)
-        else if (response.functionCalls && typeof response.functionCalls === 'function') {
-          const legacyCalls = response.functionCalls();
-          toolCalls = legacyCalls.map(call => ({
-            name: call.name,
-            args: call.args || {}
-          }));
-        }
-        // FALLBACK 3: Direct functionCalls array
-        else if (response.functionCalls && Array.isArray(response.functionCalls)) {
-          toolCalls = response.functionCalls.map(call => ({
-            name: call.name,
-            args: call.args || {}
-          }));
-        }
+        };
 
-        logger.info('Function calls extracted from Gemini response', {
-          toolCallsFound: toolCalls.length,
-          callNames: toolCalls.map(tc => tc.name),
-          responseStructure: {
-            hasCandidates: !!response?.candidates,
-            hasContentParts: !!response?.candidates?.[0]?.content?.parts,
-            partsCount: response?.candidates?.[0]?.content?.parts?.length || 0,
-            hasLegacyFunctionCalls: !!response.functionCalls,
-            functionCallsType: typeof response.functionCalls
-          }
-        });
-      } catch (error) {
-        logger.error('Error extracting tool calls from response', {
-          error: error.message,
-          responseKeys: response ? Object.keys(response) : 'response is null/undefined',
-          responseType: typeof response
-        });
-        toolCalls = [];
-      }
-
-      const toolResults = [];
-      const maxToolCalls = 10; // Maximum number of tool calls in single execution
-
-      // Check for too many tool calls (possible infinite loop)
-      if (toolCalls.length > maxToolCalls) {
-        logger.error('Too many tool calls detected, possible infinite loop', {
-          toolCallsCount: toolCalls.length,
-          maxToolCalls,
-          toolNames: toolCalls.map(tc => tc.name)
-        });
-        throw new Error(`Too many tool calls (${toolCalls.length} > ${maxToolCalls}). Possible infinite loop detected.`);
-      }
-
-      // If no tool calls detected, check if Gemini returned a text response instead
-      if (toolCalls.length === 0) {
-        // Use centralized response extraction with detailed logging
-        const textResponse = extractGeminiText(response, {
-          includeLogging: true,
-          logger: logger.info.bind(logger)
-        });
-
-        logger.warn('No tool calls detected in response despite tools being available', {
-          hasText: !!textResponse,
-          textPreview: textResponse.substring(0, 100)
-        });
-
-        // Return the text response if no tools were called
-        if (textResponse) {
-          return {
-            reply: textResponse,
-            toolsUsed: []
+        // Add tools unless at depth limit
+        if (!isAtDepthLimit) {
+          requestConfig.config.tools = [{
+            functionDeclarations: toolDeclarations
+          }];
+          requestConfig.config.toolConfig = {
+            functionCallingConfig: { mode: 'AUTO' } // Let Gemini decide
+          };
+        } else {
+          // At depth limit - force text generation
+          requestConfig.config.toolConfig = {
+            functionCallingConfig: { mode: 'NONE' }
           };
         }
-      }
 
-      // Execute tool calls
-      for (const call of toolCalls) {
-        logger.info('Executing tool call', {
-          toolName: call.name,
-          hasArgs: !!call.args,
-          argsKeys: call.args ? Object.keys(call.args) : [],
-          toolArgs: JSON.stringify(call.args, null, 2)
+        if (enhancedSystemInstruction) {
+          requestConfig.config.systemInstruction = enhancedSystemInstruction;
+        }
+
+        logger.info(`Tool loop iteration ${loopDepth + 1}/${maxLoopDepth}`, {
+          contentsLength: contents.length,
+          toolsEnabled: !isAtDepthLimit,
+          isAtDepthLimit
         });
 
-        const tool = registry.getTool(call.name);
-        if (tool) {
-          try {
-            // Pass enhanced context to tools
-            const enhancedToolContext = {
-              ...toolExecutionContext,
-              previousToolResults: toolResults,
-              currentCall: call
+        const result = await client.models.generateContent(requestConfig);
+
+        // Extract function calls from response
+        let toolCalls = [];
+        try {
+          if (result?.candidates?.[0]?.content?.parts) {
+            const parts = result.candidates[0].content.parts;
+            for (const part of parts) {
+              if (part.function_call) {
+                toolCalls.push({
+                  name: part.function_call.name,
+                  args: part.function_call.args || {}
+                });
+              } else if (part.functionCall) {
+                toolCalls.push({
+                  name: part.functionCall.name,
+                  args: part.functionCall.args || {}
+                });
+              }
+            }
+          }
+        } catch (error) {
+          logger.error('Error extracting tool calls', { error: error.message });
+          toolCalls = [];
+        }
+
+        logger.info('Tool calls extracted', {
+          loopDepth,
+          toolCallsFound: toolCalls.length,
+          callNames: toolCalls.map(tc => tc.name)
+        });
+
+        // ============================================
+        // EXIT CONDITION: No more tool calls
+        // ============================================
+        if (toolCalls.length === 0) {
+          const textResponse = extractGeminiText(result, {
+            includeLogging: true,
+            logger: logger.info.bind(logger)
+          });
+
+          if (textResponse) {
+            logger.info('Tool chaining complete - text response received', {
+              loopDepth,
+              totalToolsUsed: allToolResults.length,
+              textLength: textResponse.length
+            });
+            return {
+              reply: textResponse,
+              toolsUsed: allToolResults.map(t => t.name)
             };
-            
-            // Execute tool with timeout protection
-            const toolTimeout = 720000; // 12 minutes max per tool
-            const timeoutPromise = new Promise((_, reject) => {
-              setTimeout(() => reject(new Error(`Tool execution timeout after ${toolTimeout}ms`)), toolTimeout);
-            });
-            
-            const result = await Promise.race([
-              tool.execute(call.args, enhancedToolContext),
-              timeoutPromise
-            ]);
-            
-            toolResults.push({
-              name: call.name,
-              result
-            });
-            logger.info('Tool execution successful', {
-              toolName: call.name,
-              resultType: typeof result,
-              hasKnowledgeContext: !!enhancedToolContext.knowledgeResults,
-              executionDepth: currentDepth
-            });
-          } catch (error) {
-            logger.error('Tool execution failed', {
-              tool: call.name,
-              error: error.message,
-              stack: error.stack
-            });
-            toolResults.push({
-              name: call.name,
-              error: error.message
-            });
           }
-        } else {
-          logger.warn('Tool not found in registry', {
-            requestedTool: call.name,
-            availableTools: registry.getAllTools().map(t => t.name)
+
+          // No text and no tool calls - something went wrong
+          logger.warn('No tool calls and no text response', { loopDepth });
+          return {
+            reply: 'Tool execution completed but no response generated.',
+            toolsUsed: allToolResults.map(t => t.name)
+          };
+        }
+
+        // ============================================
+        // EXECUTE TOOL CALLS
+        // ============================================
+        const maxToolCallsPerIteration = 10;
+        if (toolCalls.length > maxToolCallsPerIteration) {
+          logger.error('Too many tool calls in single iteration', {
+            count: toolCalls.length,
+            max: maxToolCallsPerIteration
           });
+          throw new Error(`Too many tool calls (${toolCalls.length} > ${maxToolCallsPerIteration})`);
         }
-      }
 
-      // Check if any tools returned null (indicating they handled messaging themselves)
-      const hasNullResults = toolResults.some(tr => tr.result === null);
-      if (hasNullResults) {
-        logger.info('Tool returned null - skipping final response generation', {
-          toolResultsCount: toolResults.length,
-          toolNames: toolResults.map(tr => tr.name)
-        });
-        return { reply: null }; // Indicate no additional response needed
-      }
-
-      // Generate final response with tool results using the same model
-      logger.info('Generating final response with tool results', {
-        toolResultsCount: toolResults.length,
-        toolNames: toolResults.map(tr => tr.name),
-        hasResults: toolResults.length > 0
-      });
-
-      // Check if this is a photo response that needs special handling
-      // We want Gemini to add annotations but preserve the photo URLs
-      let isPhotoResponse = false;
-      let photoToolResult = null;
-      
-      for (const toolResult of toolResults) {
-        if (typeof toolResult.result === 'string' && 
-            (toolResult.result.includes('📸') || toolResult.result.includes('[Photo ')) &&
-            toolResult.result.includes('places.googleapis.com')) {
-          
-          isPhotoResponse = true;
-          photoToolResult = toolResult;
-          
-          logger.info('Detected photo response - will ask Gemini to enhance with annotations', {
-            toolName: toolResult.name,
-            responseLength: toolResult.result.length,
-            hasPhotoUrls: toolResult.result.includes('places.googleapis.com')
+        const iterationResults = [];
+        for (const call of toolCalls) {
+          logger.info('Executing tool', {
+            toolName: call.name,
+            loopDepth,
+            argsKeys: Object.keys(call.args || {})
           });
-          break;
-        }
-      }
 
-      // Build proper function calling conversation structure
-      // This uses functionResponse parts instead of plain text for tool results
-      const modelFunctionCallParts = toolCalls.map(tc => ({
-        functionCall: {
-          name: tc.name,
-          args: tc.args
-        }
-      }));
-
-      // Build functionResponse parts for each tool result
-      const functionResponseParts = toolResults.map(tr => {
-        let responseData;
-        if (tr.error) {
-          responseData = { error: tr.error, success: false };
-        } else if (typeof tr.result === 'string') {
-          responseData = { content: tr.result, success: true };
-        } else if (tr.result && typeof tr.result === 'object') {
-          // Preserve the tool's success field if it exists, otherwise default to true
-          const toolSuccess = tr.result.success !== undefined ? tr.result.success : true;
-          responseData = { ...tr.result, success: toolSuccess };
-        } else {
-          responseData = { result: tr.result, success: true };
-        }
-        return {
-          functionResponse: {
-            name: tr.name,
-            response: responseData
-          }
-        };
-      });
-
-      logger.info('Building final request with proper function calling structure', {
-        modelFunctionCallParts: modelFunctionCallParts.length,
-        functionResponseParts: functionResponseParts.length,
-        isPhotoResponse
-      });
-
-      // Special handling for photo responses - add instruction as additional user message
-      const finalContents = [
-        {
-          role: 'user',
-          parts: [{ text: prompt }]
-        },
-        {
-          role: 'model',
-          parts: modelFunctionCallParts
-        },
-        {
-          role: 'user',
-          parts: functionResponseParts
-        }
-      ];
-
-      // Add follow-up instruction for photo responses or to guide response format
-      if (isPhotoResponse) {
-        finalContents.push({
-          role: 'user',
-          parts: [{
-            text: `IMPORTANT: You MUST preserve ALL photo URLs exactly as provided. Add helpful annotations, context about the locations, or interesting details about what visitors might see, but keep every single [Photo X](URL) link intact. DO NOT create generic text - use the actual response with URLs.`
-          }]
-        });
-      } else {
-        finalContents.push({
-          role: 'user',
-          parts: [{
-            text: `CRITICAL INSTRUCTIONS for responding:
-1. If the tool returned a formatted message starting with ✅ or containing "Posted to Bluesky" or "created successfully" - the action is ALREADY COMPLETE. DO NOT say "here's a draft" or "for your review". The tool EXECUTED the action.
-2. If the tool says it posted/created/updated something, relay that EXACTLY. DO NOT rewrite success messages as drafts or suggestions.
-3. If the tool returned structured data (JSON/objects), convert it to user-friendly prose or lists.
-4. If the tool returned a formatted text message, present it exactly as written.
-5. DO NOT fabricate structured data or additional fields that were not in the actual tool output.
-6. DO NOT add phrases like "I've drafted", "for your review", "let me know if you'd like to post" when the tool already performed the action.`
-          }]
-        });
-      }
-
-      // Check if any tool failed - if so, allow Gemini to retry with different approach
-      const hasFailedTools = toolResults.some(tr =>
-        tr.error || (tr.result && tr.result.success === false)
-      );
-
-      const finalRequestConfig = {
-        model: getGeminiModelName(),
-        contents: finalContents,
-        config: {
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 65536 // Maximum for Gemini 2.5 Pro - allows full transcripts
-          }
-        }
-      };
-
-      // If tools failed and we haven't hit depth limit, allow Gemini to retry
-      if (hasFailedTools && currentDepth < maxDepth) {
-        logger.info('Tool(s) failed - allowing Gemini to retry with tools enabled', {
-          failedTools: toolResults.filter(tr => tr.error || tr.result?.success === false).map(tr => tr.name),
-          currentDepth,
-          maxDepth
-        });
-        // Keep tools enabled so Gemini can retry
-        finalRequestConfig.tools = toolDeclarations;
-      } else {
-        // All tools succeeded or at depth limit - force text generation
-        finalRequestConfig.config.toolConfig = {
-          functionCallingConfig: {
-            mode: 'NONE'
-          }
-        };
-      }
-
-      if (systemInstruction) {
-        finalRequestConfig.config.systemInstruction = systemInstruction;
-      }
-
-      logger.info('Sending final request to Gemini for tool response generation', {
-        hasFailedTools,
-        toolsEnabled: !finalRequestConfig.config.toolConfig
-      });
-      const finalResult = await client.models.generateContent(finalRequestConfig);
-
-      // Check if Gemini wants to call more tools (retry after failure)
-      const retryToolCalls = [];
-      if (finalResult?.candidates?.[0]?.content?.parts) {
-        for (const part of finalResult.candidates[0].content.parts) {
-          if (part.functionCall) {
-            retryToolCalls.push({
-              name: part.functionCall.name,
-              args: part.functionCall.args || {}
-            });
-          }
-        }
-      }
-
-      // If Gemini wants to retry with different tools, execute them recursively
-      if (retryToolCalls.length > 0 && currentDepth < maxDepth) {
-        logger.info('Gemini requesting tool retry after failure', {
-          retryToolNames: retryToolCalls.map(tc => tc.name),
-          currentDepth
-        });
-
-        // Execute retry tool calls
-        const retryResults = [];
-        for (const call of retryToolCalls) {
           const tool = registry.getTool(call.name);
           if (tool) {
             try {
-              const result = await tool.execute(call.args, { ...toolExecutionContext, executionDepth: currentDepth });
-              retryResults.push({ name: call.name, result });
-              logger.info('Retry tool execution successful', { toolName: call.name });
+              const enhancedContext = {
+                ...toolExecutionContext,
+                previousToolResults: allToolResults,
+                currentCall: call,
+                executionDepth: currentDepth + loopDepth
+              };
+
+              // Execute with timeout
+              const toolTimeout = 720000; // 12 minutes
+              const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Tool timeout after ${toolTimeout}ms`)), toolTimeout);
+              });
+
+              const toolResult = await Promise.race([
+                tool.execute(call.args, enhancedContext),
+                timeoutPromise
+              ]);
+
+              iterationResults.push({ name: call.name, result: toolResult });
+              allToolResults.push({ name: call.name, result: toolResult });
+
+              logger.info('Tool execution successful', {
+                toolName: call.name,
+                resultType: typeof toolResult
+              });
             } catch (error) {
-              logger.error('Retry tool execution failed', { tool: call.name, error: error.message });
-              retryResults.push({ name: call.name, error: error.message });
+              logger.error('Tool execution failed', {
+                toolName: call.name,
+                error: error.message
+              });
+              iterationResults.push({ name: call.name, error: error.message });
+              allToolResults.push({ name: call.name, error: error.message });
             }
+          } else {
+            logger.warn('Tool not found', { toolName: call.name });
+            iterationResults.push({ name: call.name, error: 'Tool not found' });
+            allToolResults.push({ name: call.name, error: 'Tool not found' });
           }
         }
 
-        // Combine original and retry results
-        toolResults.push(...retryResults);
+        // Check for null results (tool handled messaging itself)
+        const hasNullResults = iterationResults.some(tr => tr.result === null);
+        if (hasNullResults) {
+          logger.info('Tool returned null - skipping response generation');
+          return { reply: null };
+        }
 
-        // Build new function response parts for retry
-        const retryFunctionResponseParts = retryResults.map(tr => {
+        // ============================================
+        // APPEND TO CONVERSATION & CONTINUE LOOP
+        // ============================================
+        // Add model's function calls to conversation
+        contents.push({
+          role: 'model',
+          parts: toolCalls.map(tc => ({
+            functionCall: { name: tc.name, args: tc.args }
+          }))
+        });
+
+        // Add function responses to conversation
+        const functionResponseParts = iterationResults.map(tr => {
           let responseData;
           if (tr.error) {
             responseData = { error: tr.error, success: false };
@@ -997,60 +771,87 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
           };
         });
 
-        // Send retry results to Gemini for final response
-        const retryContents = [
-          ...finalContents,
-          {
-            role: 'model',
-            parts: retryToolCalls.map(tc => ({ functionCall: { name: tc.name, args: tc.args } }))
-          },
-          {
+        contents.push({
+          role: 'user',
+          parts: functionResponseParts
+        });
+
+        // Check for photo responses and add special instruction
+        const hasPhotoResponse = iterationResults.some(tr =>
+          typeof tr.result === 'string' &&
+          (tr.result.includes('📸') || tr.result.includes('[Photo ')) &&
+          tr.result.includes('places.googleapis.com')
+        );
+
+        if (hasPhotoResponse) {
+          contents.push({
             role: 'user',
-            parts: retryFunctionResponseParts
-          }
-        ];
-
-        const retryRequestConfig = {
-          model: getGeminiModelName(),
-          contents: retryContents,
-          config: {
-            generationConfig: { temperature: 0.7, topK: 40, topP: 0.95, maxOutputTokens: 65536 },
-            toolConfig: { functionCallingConfig: { mode: 'NONE' } }
-          }
-        };
-
-        if (systemInstruction) {
-          retryRequestConfig.config.systemInstruction = systemInstruction;
+            parts: [{
+              text: `IMPORTANT: Preserve ALL photo URLs exactly as provided. Add annotations but keep every [Photo X](URL) link intact.`
+            }]
+          });
         }
 
-        const retryFinalResult = await client.models.generateContent(retryRequestConfig);
-        const retryText = extractGeminiText(retryFinalResult, {
-          includeLogging: true,
-          logger: logger.info.bind(logger)
-        }) || retryFinalResult?.text?.() || 'Tool execution completed.';
-
-        return {
-          reply: retryText,
-          toolsUsed: toolResults.map(t => t.name)
-        };
+        loopDepth++;
+        logger.info('Tool loop iteration complete, continuing', {
+          loopDepth,
+          totalToolsUsed: allToolResults.length,
+          contentsLength: contents.length
+        });
       }
 
-      // Use centralized response extraction with detailed logging
+      // ============================================
+      // DEPTH LIMIT REACHED - Force final response
+      // ============================================
+      logger.warn('Tool chaining depth limit reached, forcing final response', {
+        loopDepth,
+        maxLoopDepth,
+        totalToolsUsed: allToolResults.length
+      });
+
+      // Add instruction to generate final response
+      contents.push({
+        role: 'user',
+        parts: [{
+          text: `CRITICAL: Generate a final response summarizing the tool results. Do not request additional tools.
+If tools returned success messages, relay them exactly. If tools returned data, present it clearly to the user.`
+        }]
+      });
+
+      const finalRequestConfig = {
+        model: getGeminiModelName(),
+        contents: contents,
+        config: {
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 65536
+          },
+          toolConfig: {
+            functionCallingConfig: { mode: 'NONE' }
+          }
+        }
+      };
+
+      if (enhancedSystemInstruction) {
+        finalRequestConfig.config.systemInstruction = enhancedSystemInstruction;
+      }
+
+      const finalResult = await client.models.generateContent(finalRequestConfig);
       const finalText = extractGeminiText(finalResult, {
         includeLogging: true,
         logger: logger.info.bind(logger)
-      }) || finalResult?.text?.() || 'Tool execution completed but no response generated.';
+      }) || 'Tool execution completed.';
 
-      logger.info('Final Gemini response received', {
-        hasCandidates: !!finalResult?.candidates,
-        candidatesCount: finalResult?.candidates?.length || 0,
-        hasText: !!finalText,
-        textLength: finalText.length
+      logger.info('Final response generated after depth limit', {
+        textLength: finalText.length,
+        totalToolsUsed: allToolResults.length
       });
 
       return {
         reply: finalText,
-        toolsUsed: toolResults.map(t => t.name)
+        toolsUsed: allToolResults.map(t => t.name)
       };
     } catch (error) {
       logger.error('Failed to execute with tools', { executionId, error: error.message, stack: error.stack });
