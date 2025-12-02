@@ -94,6 +94,8 @@ class CloudBuildService {
         return null;
       }
 
+      const targetRepo = `${repoOwner}/${repoName}`.toLowerCase();
+
       // List all triggers in the project
       const response = await this.cloudbuild.projects.triggers.list({
         projectId: this.projectId
@@ -101,12 +103,50 @@ class CloudBuildService {
 
       const triggers = response.data.triggers || [];
 
+      logger.info('Auto-detecting Cloud Build trigger', {
+        targetRepo,
+        triggersFound: triggers.length
+      });
+
       // Find a trigger that matches our repository
       for (const trigger of triggers) {
-        const triggerRepo = trigger.github?.owner + '/' + trigger.github?.name;
-        const targetRepo = `${repoOwner}/${repoName}`;
+        let triggerRepo = null;
 
-        if (triggerRepo.toLowerCase() === targetRepo.toLowerCase()) {
+        // Check different trigger source types
+        if (trigger.github?.owner && trigger.github?.name) {
+          // GitHub App connection (1st gen)
+          triggerRepo = `${trigger.github.owner}/${trigger.github.name}`;
+        } else if (trigger.repositoryEventConfig?.repository) {
+          // Connected repository (2nd gen) - format: projects/PROJECT/locations/REGION/connections/CONNECTION/repositories/REPO
+          const repoPath = trigger.repositoryEventConfig.repository;
+          const repoMatch = repoPath.match(/repositories\/(.+)$/);
+          if (repoMatch) {
+            // 2nd gen repos often have owner-repo format
+            triggerRepo = repoMatch[1].replace('-', '/');
+          }
+        } else if (trigger.triggerTemplate?.repoName) {
+          // Cloud Source Repositories - format: github_owner_repo
+          const csrRepo = trigger.triggerTemplate.repoName;
+          if (csrRepo.startsWith('github_')) {
+            // Extract owner/repo from github_owner_repo format
+            const parts = csrRepo.replace('github_', '').split('_');
+            if (parts.length >= 2) {
+              triggerRepo = `${parts[0]}/${parts.slice(1).join('_')}`;
+            }
+          }
+        }
+
+        logger.debug('Checking trigger', {
+          triggerId: trigger.id,
+          triggerName: trigger.name,
+          triggerRepo,
+          targetRepo,
+          hasGithub: !!trigger.github,
+          hasRepoEventConfig: !!trigger.repositoryEventConfig,
+          hasTriggerTemplate: !!trigger.triggerTemplate
+        });
+
+        if (triggerRepo && triggerRepo.toLowerCase() === targetRepo) {
           logger.info('Auto-detected Cloud Build trigger', {
             triggerId: trigger.id,
             triggerName: trigger.name,
@@ -128,14 +168,24 @@ class CloudBuildService {
         }
       }
 
-      logger.debug('No matching Cloud Build trigger found for repository', {
-        repo: `${repoOwner}/${repoName}`,
-        availableTriggers: triggers.length
+      // Log all triggers for debugging if none matched
+      logger.warn('No matching Cloud Build trigger found for repository', {
+        targetRepo,
+        availableTriggers: triggers.map(t => ({
+          id: t.id,
+          name: t.name,
+          github: t.github ? `${t.github.owner}/${t.github.name}` : null,
+          repoEventConfig: t.repositoryEventConfig?.repository || null,
+          triggerTemplate: t.triggerTemplate?.repoName || null
+        }))
       });
 
       return null;
     } catch (error) {
-      logger.warn('Failed to auto-detect Cloud Build trigger', { error: error.message });
+      logger.error('Failed to auto-detect Cloud Build trigger', {
+        error: error.message,
+        stack: error.stack
+      });
       return null;
     }
   }

@@ -215,10 +215,10 @@ class GitHubService {
         // GitHub App: get app installation info instead
         try {
           const { data: installation } = await this.octokit.rest.apps.getAuthenticated();
-          authInfo = { app: installation.name, authType: 'github-app' };
+          authInfo = { user: installation.name || 'GitHub App', app: installation.name, authType: 'github-app' };
         } catch {
           // If that fails, just note it's a GitHub App
-          authInfo = { authType: 'github-app' };
+          authInfo = { user: 'GitHub App', authType: 'github-app' };
         }
       }
 
