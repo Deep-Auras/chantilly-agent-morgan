@@ -54,19 +54,28 @@ class CloudBuildService {
    * Get the Cloud Build trigger ID - from Firestore or auto-detect
    */
   async getTriggerId() {
+    logger.info('getTriggerId called');
     try {
       const db = getFirestore();
       const configDoc = await db.doc('agent/build-mode').get();
+      const data = configDoc.data() || {};
+
+      logger.info('getTriggerId Firestore check', {
+        docExists: configDoc.exists,
+        hasTriggerId: !!data.cloudBuildTriggerId,
+        triggerId: data.cloudBuildTriggerId ? `${data.cloudBuildTriggerId.substring(0, 8)}...` : null
+      });
 
       // First check if manually configured in Firestore
-      if (configDoc.exists && configDoc.data()?.cloudBuildTriggerId) {
-        return configDoc.data().cloudBuildTriggerId;
+      if (configDoc.exists && data.cloudBuildTriggerId) {
+        return data.cloudBuildTriggerId;
       }
 
       // Auto-detect trigger from Cloud Build API
+      logger.info('getTriggerId calling autoDetectTriggerId');
       return await this.autoDetectTriggerId();
     } catch (error) {
-      logger.warn('Failed to get Cloud Build trigger ID', { error: error.message });
+      logger.error('Failed to get Cloud Build trigger ID', { error: error.message, stack: error.stack });
       return null;
     }
   }
