@@ -207,9 +207,18 @@ class CloudBuildService {
    * @returns {Object} Build info
    */
   async triggerBuild(branch, commitSha, triggeredBy) {
+    logger.info('triggerBuild START', { branch, commitSha: commitSha?.substring(0, 7), triggeredBy });
+
     await this.initialize();
 
-    const triggerId = await this.getTriggerId();
+    logger.info('triggerBuild calling getTriggerId');
+    let triggerId = null;
+    try {
+      triggerId = await this.getTriggerId();
+      logger.info('triggerBuild getTriggerId returned', { triggerId: triggerId ? `${triggerId.substring(0, 8)}...` : null });
+    } catch (getTriggerIdError) {
+      logger.error('triggerBuild getTriggerId THREW', { error: getTriggerIdError.message, stack: getTriggerIdError.stack });
+    }
 
     // If no trigger ID configured, use direct build method
     if (!triggerId) {
