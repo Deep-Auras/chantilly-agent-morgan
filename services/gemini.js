@@ -660,7 +660,8 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
             });
             return {
               reply: textResponse,
-              toolsUsed: allToolResults.map(t => t.name)
+              toolsUsed: allToolResults.map(t => t.name),
+              toolResults: allToolResults
             };
           }
 
@@ -679,7 +680,8 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
           logger.warn('No tool calls and no text response', { loopDepth, finishReason });
           return {
             reply: 'Tool execution completed but no response generated.',
-            toolsUsed: allToolResults.map(t => t.name)
+            toolsUsed: allToolResults.map(t => t.name),
+            toolResults: allToolResults
           };
         }
 
@@ -869,7 +871,8 @@ DO NOT request additional tool calls. Respond with text only.`
 
       return {
         reply: finalText,
-        toolsUsed: allToolResults.map(t => t.name)
+        toolsUsed: allToolResults.map(t => t.name),
+        toolResults: allToolResults
       };
     } catch (error) {
       logger.error('Failed to execute with tools', { executionId, error: error.message, stack: error.stack });

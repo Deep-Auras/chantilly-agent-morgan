@@ -1574,4 +1574,163 @@ router.post('/api/chat/clear', async (req, res) => {
   }
 });
 
+// ============================================
+// Code Modification Approval Endpoints (Chat)
+// ============================================
+
+/**
+ * POST /api/chat/approve/:modId
+ * Approve a pending code modification from chat
+ */
+router.post('/api/chat/approve/:modId', async (req, res) => {
+  try {
+    const { modId } = req.params;
+
+    if (!modId || typeof modId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid modification ID' });
+    }
+
+    const db = getFirestore();
+    const { getFieldValue } = require('../config/firestore');
+    const FieldValue = getFieldValue();
+
+    const modRef = db.collection('code-modifications').doc(modId);
+    const modDoc = await modRef.get();
+
+    if (!modDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Modification not found' });
+    }
+
+    const mod = modDoc.data();
+
+    if (mod.userApproved) {
+      return res.status(400).json({ success: false, error: 'Modification already approved' });
+    }
+
+    // Apply the modification via GitHub API
+    const { getGitHubService } = require('../services/github/githubService');
+    const githubService = getGitHubService();
+    let result;
+
+    if (mod.operation === 'delete') {
+      const existing = await githubService.getFileContents(mod.filePath, mod.branch);
+      result = await githubService.deleteFile(
+        mod.filePath,
+        mod.commitMessage,
+        mod.branch,
+        existing.sha
+      );
+    } else {
+      result = await githubService.createOrUpdateFile(
+        mod.filePath,
+        mod.afterContent,
+        mod.commitMessage,
+        mod.branch
+      );
+    }
+
+    // Update modification record
+    await modRef.update({
+      userApproved: true,
+      approvedBy: req.user.username,
+      approvedAt: FieldValue.serverTimestamp(),
+      appliedAt: FieldValue.serverTimestamp(),
+      committedAt: FieldValue.serverTimestamp(),
+      commitSha: result.commit.sha
+    });
+
+    // Add to build session if active
+    try {
+      const { getBuildModeManager } = require('../services/build/buildModeManager');
+      const buildModeManager = getBuildModeManager();
+      const session = await buildModeManager.getCurrentSession(req.user.username);
+      if (session) {
+        await buildModeManager.addCommitToSession(session.sessionId, {
+          sha: result.commit.sha,
+          message: mod.commitMessage
+        });
+        await buildModeManager.addFileToSession(session.sessionId, {
+          path: mod.filePath,
+          status: mod.operation === 'create' ? 'created' : mod.operation
+        });
+      }
+    } catch (sessionError) {
+      logger.warn('Failed to add to build session', { error: sessionError.message });
+    }
+
+    logger.info('Code modification approved via chat', {
+      modId,
+      filePath: mod.filePath,
+      commitSha: result.commit.sha,
+      approvedBy: req.user.username
+    });
+
+    res.json({
+      success: true,
+      commitSha: result.commit.sha,
+      commitUrl: result.commit.url
+    });
+  } catch (error) {
+    logger.error('Failed to approve code modification', {
+      modId: req.params.modId,
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ success: false, error: 'Failed to approve modification' });
+  }
+});
+
+/**
+ * POST /api/chat/reject/:modId
+ * Reject a pending code modification from chat
+ */
+router.post('/api/chat/reject/:modId', async (req, res) => {
+  try {
+    const { modId } = req.params;
+
+    if (!modId || typeof modId !== 'string') {
+      return res.status(400).json({ success: false, error: 'Invalid modification ID' });
+    }
+
+    const db = getFirestore();
+    const { getFieldValue } = require('../config/firestore');
+    const FieldValue = getFieldValue();
+
+    const modRef = db.collection('code-modifications').doc(modId);
+    const modDoc = await modRef.get();
+
+    if (!modDoc.exists) {
+      return res.status(404).json({ success: false, error: 'Modification not found' });
+    }
+
+    const mod = modDoc.data();
+
+    if (mod.userApproved) {
+      return res.status(400).json({ success: false, error: 'Modification already approved, cannot reject' });
+    }
+
+    // Update modification record as rejected
+    await modRef.update({
+      rejected: true,
+      rejectedBy: req.user.username,
+      rejectedAt: FieldValue.serverTimestamp()
+    });
+
+    logger.info('Code modification rejected via chat', {
+      modId,
+      filePath: mod.filePath,
+      rejectedBy: req.user.username
+    });
+
+    res.json({ success: true, message: 'Modification rejected' });
+  } catch (error) {
+    logger.error('Failed to reject code modification', {
+      modId: req.params.modId,
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({ success: false, error: 'Failed to reject modification' });
+  }
+});
+
 module.exports = router;
