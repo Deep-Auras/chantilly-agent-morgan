@@ -145,6 +145,15 @@ block content
                     span(x-text="formatDate(commit.date)")
                     span.text-gray-300 |
                     code.text-xs.bg-gray-200.px-1.rounded(x-text="commit.sha.substring(0, 7)")
+                //- Revert button
+                button.flex-shrink-0.px-2.py-1.text-xs.text-red-600.border.border-red-300.rounded(
+                  @click="revertCommit(commit.sha)"
+                  :disabled="revertingCommit === commit.sha"
+                  class="hover:bg-red-50 disabled:opacity-50"
+                  title="Revert this commit"
+                )
+                  span(x-show="revertingCommit !== commit.sha") Revert
+                  span(x-show="revertingCommit === commit.sha" x-cloak) Reverting...
 
       //- Right Column: Cloud Builds + Session Info + Pending Modifications
       .space-y-6
@@ -314,6 +323,7 @@ block content
         deployedBranch: 'main',  // Track what's currently deployed
         branches: [],
         commits: [],
+        revertingCommit: null,
 
         // Cloud Build state
         cloudBuilds: [],
@@ -488,6 +498,41 @@ block content
             }
           } catch (e) {
             alert('Failed to switch branch');
+          }
+        },
+
+        async revertCommit(sha) {
+          if (this.revertingCommit) return;
+
+          const confirmMsg = `Are you sure you want to revert commit ${sha.substring(0, 7)}?\n\nThis will create a new commit that undoes the changes from that commit.`;
+          if (!confirm(confirmMsg)) return;
+
+          this.revertingCommit = sha;
+          try {
+            const response = await fetch('/api/build/github/revert', {
+              method: 'POST',
+              credentials: 'same-origin',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                sha: sha,
+                branch: this.currentBranch
+              })
+            });
+            const data = await response.json();
+            if (data.success) {
+              alert(`Commit reverted successfully!\n\nRevert commit: ${data.revertCommit.sha.substring(0, 7)}\nFiles reverted: ${data.filesReverted.join(', ')}`);
+              // Reload commits to show the revert commit
+              await this.loadCommits();
+            } else {
+              alert(data.error || 'Failed to revert commit');
+            }
+          } catch (e) {
+            alert('Failed to revert commit: ' + e.message);
+          } finally {
+            this.revertingCommit = null;
           }
         },
 

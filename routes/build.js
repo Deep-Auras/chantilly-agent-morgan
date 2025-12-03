@@ -1109,6 +1109,75 @@ router.get('/github/commits/:branch', requireBuildAccess, async (req, res) => {
 });
 
 /**
+ * POST /api/build/github/revert
+ * Revert a specific commit by creating a new commit that undoes its changes
+ */
+router.post('/github/revert', requireBuildAccess, async (req, res) => {
+  try {
+    const { sha, branch } = req.body;
+
+    if (!sha || typeof sha !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Commit SHA is required'
+      });
+    }
+
+    if (!branch || typeof branch !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'Branch name is required'
+      });
+    }
+
+    // Validate SHA format (40 hex characters or 7+ for short SHA)
+    if (!/^[a-f0-9]{7,40}$/i.test(sha)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid commit SHA format'
+      });
+    }
+
+    logger.info('Reverting commit', {
+      sha,
+      branch,
+      user: req.user.username
+    });
+
+    const githubService = getGitHubService();
+    const result = await githubService.revertCommit(sha, branch);
+
+    logger.info('Commit reverted successfully', {
+      originalSha: sha,
+      revertSha: result.sha,
+      branch,
+      user: req.user.username,
+      filesReverted: result.filesReverted
+    });
+
+    res.json({
+      success: true,
+      revertCommit: {
+        sha: result.sha,
+        message: result.message,
+        url: result.url
+      },
+      filesReverted: result.filesReverted
+    });
+  } catch (error) {
+    logger.error('Failed to revert commit', {
+      error: error.message,
+      sha: req.body.sha,
+      branch: req.body.branch
+    });
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to revert commit'
+    });
+  }
+});
+
+/**
  * GET /api/build/github/file/*
  * Get file contents (path as wildcard)
  */
