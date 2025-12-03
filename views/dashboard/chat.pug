@@ -211,6 +211,9 @@ block content
             // Load initial messages
             await this.loadMessages();
 
+            // Load any pending approvals from database
+            await this.loadPendingApprovals();
+
             // Subscribe to real-time updates via Firestore
             this.subscribeToMessages();
 
@@ -253,6 +256,37 @@ block content
           // 1. Initial load in loadMessages()
           // 2. User messages added immediately in sendMessage()
           // 3. Assistant messages added immediately via SSE stream
+        },
+
+        async loadPendingApprovals() {
+          try {
+            const response = await fetch('/dashboard/api/chat/pending-approvals', {
+              headers: {
+                'X-CSRF-Token': window.csrfToken
+              }
+            });
+
+            if (response.ok) {
+              const data = await response.json();
+              if (data.success && data.pendingApprovals) {
+                // Only add approvals that aren't already in the list
+                for (const approval of data.pendingApprovals) {
+                  const exists = this.pendingApprovals.some(a => a.modId === approval.modId);
+                  if (!exists) {
+                    this.pendingApprovals.push({
+                      modId: approval.modId,
+                      filePath: approval.filePath,
+                      operation: approval.operation,
+                      diff: approval.diff,
+                      processing: false
+                    });
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Failed to load pending approvals:', error);
+          }
         },
 
         getLastMessageTime() {
@@ -303,58 +337,77 @@ block content
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let currentEventType = 'message';
+            let buffer = '';
 
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
 
-              const chunk = decoder.decode(value);
-              const lines = chunk.split('\n');
+              // Accumulate chunks in buffer to handle split events
+              buffer += decoder.decode(value, { stream: true });
 
-              for (const line of lines) {
-                // Track event type
-                if (line.startsWith('event: ')) {
-                  currentEventType = line.slice(7).trim();
-                  continue;
-                }
+              // Process complete events (separated by double newline)
+              const events = buffer.split('\n\n');
+              // Keep the last incomplete event in the buffer
+              buffer = events.pop() || '';
 
-                if (line.startsWith('data: ')) {
-                  const data = JSON.parse(line.slice(6));
+              for (const eventBlock of events) {
+                if (!eventBlock.trim()) continue;
+                const lines = eventBlock.split('\n');
 
-                  // Handle approval events
-                  if (currentEventType === 'approval' && data.approval) {
-                    this.pendingApprovals.push({
-                      ...data.approval,
-                      processing: false
-                    });
-                    if (this.autoScroll) {
-                      this.scrollToBottom();
-                    }
+                for (const line of lines) {
+                  // Track event type
+                  if (line.startsWith('event: ')) {
+                    currentEventType = line.slice(7).trim();
                     continue;
                   }
 
-                  if (data.text) {
-                    this.streamingMessage += data.text;
-                    if (this.autoScroll) {
-                      this.scrollToBottom();
+                  if (line.startsWith('data: ')) {
+                    try {
+                      const data = JSON.parse(line.slice(6));
+
+                      // Handle approval events
+                      if (currentEventType === 'approval' && data.approval) {
+                        console.log('Received approval event:', data.approval);
+                        this.pendingApprovals.push({
+                          modId: data.approval.modId,
+                          filePath: data.approval.filePath,
+                          operation: data.approval.operation,
+                          diff: data.approval.diff || '',
+                          processing: false
+                        });
+                        if (this.autoScroll) {
+                          this.scrollToBottom();
+                        }
+                        continue;
+                      }
+
+                      if (data.text) {
+                        this.streamingMessage += data.text;
+                        if (this.autoScroll) {
+                          this.scrollToBottom();
+                        }
+                      }
+
+                      if (data.status === 'complete') {
+                        // Add assistant message to history
+                        this.messages.push({
+                          id: `msg_${Date.now()}`,
+                          role: 'assistant',
+                          content: this.streamingMessage,
+                          timestamp: { _seconds: Math.floor(Date.now() / 1000) }
+                        });
+                        this.messageCount++;
+                        this.streamingMessage = '';
+                      }
+
+                      if (data.error) {
+                        console.error('Streaming error:', data.error);
+                        this.streamingMessage = '';
+                      }
+                    } catch (parseError) {
+                      console.warn('Failed to parse SSE data:', line, parseError);
                     }
-                  }
-
-                  if (data.status === 'complete') {
-                    // Add assistant message to history
-                    this.messages.push({
-                      id: `msg_${Date.now()}`,
-                      role: 'assistant',
-                      content: this.streamingMessage,
-                      timestamp: { _seconds: Math.floor(Date.now() / 1000) }
-                    });
-                    this.messageCount++;
-                    this.streamingMessage = '';
-                  }
-
-                  if (data.error) {
-                    console.error('Streaming error:', data.error);
-                    this.streamingMessage = '';
                   }
                 }
               }

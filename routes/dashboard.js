@@ -1486,6 +1486,56 @@ router.get('/api/chat/messages', async (req, res) => {
   }
 });
 
+// Get pending approvals for the chat interface
+router.get('/api/chat/pending-approvals', async (req, res) => {
+  try {
+    const db = getFirestore();
+
+    // Get pending modifications that haven't been approved yet
+    // Note: Edit/WriteFile tools set userApproved: false initially
+    const modsSnapshot = await db.collection('code-modifications')
+      .where('userApproved', '==', false)
+      .orderBy('createdAt', 'desc')
+      .limit(20)
+      .get();
+
+    const pendingApprovals = [];
+
+    for (const doc of modsSnapshot.docs) {
+      const mod = doc.data();
+      pendingApprovals.push({
+        modId: doc.id,
+        filePath: mod.filePath,
+        operation: mod.operation,
+        diff: mod.diff || '',
+        commitMessage: mod.commitMessage,
+        branch: mod.branch,
+        createdAt: mod.createdAt?.toDate?.()?.toISOString() || null
+      });
+    }
+
+    logger.info('Loaded pending approvals for chat', {
+      userId: req.user.id,
+      count: pendingApprovals.length
+    });
+
+    res.json({
+      success: true,
+      pendingApprovals
+    });
+
+  } catch (error) {
+    logger.error('Failed to load pending approvals', {
+      userId: req.user.id,
+      error: error.message
+    });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to load pending approvals'
+    });
+  }
+});
+
 // Stream AI response (SSE endpoint)
 router.post('/api/chat/stream', chatRateLimiter, async (req, res) => {
   try {
