@@ -194,6 +194,8 @@ class BuildModeTriggerService {
       { pattern: /implement\s+(?:a\s+)?(?:new\s+)?feature/i, category: 'build_feature' },
       { pattern: /modify\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
       { pattern: /update\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
+      { pattern: /change\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
+      { pattern: /edit\s+(?:the\s+)?(?:code|file|function)/i, category: 'code_modification' },
       { pattern: /fix\s+(?:the\s+)?(?:bug|issue|error)/i, category: 'bug_fix' },
       { pattern: /refactor\s+(?:the\s+)?/i, category: 'refactoring' }
     ];

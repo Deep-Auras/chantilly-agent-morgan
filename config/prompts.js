@@ -301,7 +301,180 @@ CODE QUALITY REQUIREMENTS:
 - Add appropriate error handling
 - Use the project's logging patterns (logger.info/warn/error)
 - Validate inputs at system boundaries
-- Never hardcode secrets or credentials`
+- Never hardcode secrets or credentials
+
+TOOL CREATION REQUIREMENTS (CRITICAL):
+Tools MUST extend BaseTool to be registered. Here is a WORKING example from tools/weather.js:
+
+\`\`\`javascript
+const BaseTool = require('../lib/baseTool');
+
+class WeatherTool extends BaseTool {
+  constructor(context) {
+    super(context);
+    this.name = 'weather';
+    this.description = 'Get current weather information and forecasts when user EXPLICITLY requests weather, temperature, forecast, or climate data for a specific location.';
+    this.category = 'information';
+    this.version = '1.0.0';
+    this.author = 'Chantilly Agent';
+    this.priority = 20;
+
+    this.parameters = {
+      type: 'object',
+      properties: {
+        city: {
+          type: 'string',
+          description: 'The city name to get weather for'
+        },
+        units: {
+          type: 'string',
+          description: 'Temperature units (metric or imperial)',
+          enum: ['metric', 'imperial'],
+          default: 'metric'
+        }
+      },
+      required: ['city']
+    };
+  }
+
+  // SEMANTIC TRIGGER - ALWAYS return false, let Gemini handle via description
+  async shouldTrigger() {
+    return false;
+  }
+
+  async execute(params, toolContext = {}) {
+    try {
+      const { city, units = 'metric' } = params;
+      const messageData = toolContext.messageData || toolContext;
+
+      // Your implementation here
+      const result = \`Weather in \${city}: 22°C\`;
+
+      this.log('info', 'Weather request processed', {
+        city,
+        units,
+        userId: messageData.userId
+      });
+
+      return result;
+    } catch (error) {
+      this.log('error', 'Weather tool failed', {
+        error: error.message,
+        params
+      });
+      throw new Error('Failed to get weather information');
+    }
+  }
+}
+
+module.exports = WeatherTool;
+\`\`\`
+
+CRITICAL TOOL RULES:
+1. MUST extend BaseTool from '../lib/baseTool'
+2. MUST call super(context) in constructor
+3. MUST export the class (not an instance)
+4. MUST set this.name, this.description, this.parameters
+5. shouldTrigger() MUST return false (semantic triggering via description)
+6. Use this.log() instead of console.log
+7. Tools are auto-detected from /tools/ directory on server restart
+
+SERVICE CREATION PATTERN:
+Here is a WORKING example from services/userRoleService.js (abbreviated):
+
+\`\`\`javascript
+const { getFirestore, getFieldValue } = require('../config/firestore');
+const { logger } = require('../utils/logger');
+
+class UserRoleService {
+  constructor() {
+    this.db = null;
+    this.cache = new Map();
+    this.cacheTimeout = 300000; // 5 minutes
+    this.maxCacheSize = 1000;
+    logger.info('UserRoleService constructor initialized');
+  }
+
+  async initialize() {
+    try {
+      this.db = getFirestore();
+      logger.info('UserRoleService initialized successfully');
+    } catch (error) {
+      logger.error('UserRoleService initialization failed', {
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
+
+  async getUserRole(bitrixUserId) {
+    try {
+      if (!bitrixUserId) {
+        logger.warn('getUserRole called with empty bitrixUserId');
+        return 'user';
+      }
+
+      // Check cache first
+      const cached = this.cache.get(String(bitrixUserId));
+      if (cached && (Date.now() - cached.timestamp) < this.cacheTimeout) {
+        return cached.role;
+      }
+
+      // Fetch from Firestore
+      const doc = await this.db.collection('bitrix_users').doc(String(bitrixUserId)).get();
+
+      if (!doc.exists) {
+        logger.warn('Unknown user', { bitrixUserId });
+        return 'user';
+      }
+
+      const role = doc.data().role || 'user';
+      this.cache.set(String(bitrixUserId), { role, timestamp: Date.now() });
+
+      logger.info('User role retrieved', { bitrixUserId, role });
+      return role;
+
+    } catch (error) {
+      logger.error('getUserRole failed', { bitrixUserId, error: error.message });
+      return 'user';
+    }
+  }
+
+  async cleanup() {
+    this.cache.clear();
+    logger.info('UserRoleService cleanup completed');
+  }
+}
+
+// Singleton pattern
+let serviceInstance;
+
+async function initializeUserRoleService() {
+  if (!serviceInstance) {
+    serviceInstance = new UserRoleService();
+    await serviceInstance.initialize();
+  }
+  return serviceInstance;
+}
+
+function getUserRoleService() {
+  if (!serviceInstance) {
+    throw new Error('UserRoleService not initialized. Call initializeUserRoleService() first.');
+  }
+  return serviceInstance;
+}
+
+module.exports = { UserRoleService, initializeUserRoleService, getUserRoleService };
+\`\`\`
+
+SERVICE RULES:
+- Use singleton pattern with getter function (getXxxService)
+- Include async initialize() method with Firestore setup
+- Use logger.info/warn/error (never console.log)
+- Add cleanup() method for graceful shutdown
+- Validate inputs and handle errors with fail-safe defaults
+- Export class, initialize function, and getter function`
   },
 
   grounding: {
