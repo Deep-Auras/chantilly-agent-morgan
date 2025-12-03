@@ -102,6 +102,7 @@ class WriteFile extends BaseTool {
       await modRef.set({
         modId: modRef.id,
         userId,
+        conversationId: toolContext.conversationId || null,
         filePath: file_path,
         operation,
         beforeContent,

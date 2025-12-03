@@ -1665,6 +1665,22 @@ router.post('/api/chat/approve/:modId', async (req, res) => {
       approvedBy: req.user.username
     });
 
+    // Save approval message to chat history
+    if (mod.conversationId) {
+      try {
+        const { getChatService } = require('../services/chatService');
+        const chatService = getChatService();
+        const approvalMessage = `✅ **Approved**: ${mod.operation === 'create' ? 'Created' : 'Updated'} \`${mod.filePath}\`\n\nCommit: [\`${result.commit.sha.substring(0, 7)}\`](${result.commit.url})`;
+        await chatService.saveMessage(mod.conversationId, {
+          role: 'assistant',
+          content: approvalMessage,
+          userId: null
+        });
+      } catch (chatError) {
+        logger.warn('Failed to save approval to chat history', { error: chatError.message });
+      }
+    }
+
     // Trigger Cloud Build deployment
     let buildInfo = { triggered: false };
     try {
@@ -1747,6 +1763,22 @@ router.post('/api/chat/reject/:modId', async (req, res) => {
       filePath: mod.filePath,
       rejectedBy: req.user.username
     });
+
+    // Save rejection message to chat history
+    if (mod.conversationId) {
+      try {
+        const { getChatService } = require('../services/chatService');
+        const chatService = getChatService();
+        const rejectionMessage = `❌ **Rejected**: ${mod.operation === 'create' ? 'Create' : 'Update'} \`${mod.filePath}\` was not applied.`;
+        await chatService.saveMessage(mod.conversationId, {
+          role: 'assistant',
+          content: rejectionMessage,
+          userId: null
+        });
+      } catch (chatError) {
+        logger.warn('Failed to save rejection to chat history', { error: chatError.message });
+      }
+    }
 
     res.json({ success: true, message: 'Modification rejected' });
   } catch (error) {

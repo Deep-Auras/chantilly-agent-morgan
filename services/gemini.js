@@ -708,13 +708,14 @@ TEMPLATE MODIFICATION RULES (TaskTemplateManager):
           const tool = registry.getTool(call.name);
           if (tool) {
             try {
-              // Extract userId and userRole from messageData for direct access by tools
+              // Extract userId, userRole, and conversationId from messageData for direct access by tools
               const messageDataContext = toolExecutionContext.messageData || {};
               const enhancedContext = {
                 ...toolExecutionContext,
-                // Flatten userId and userRole for direct access
+                // Flatten userId, userRole, and conversationId for direct access
                 userId: messageDataContext.userId,
                 userRole: messageDataContext.userRole,
+                conversationId: messageDataContext.dialogId || messageDataContext.chatId,
                 previousToolResults: allToolResults,
                 currentCall: call,
                 executionDepth: currentDepth + loopDepth
