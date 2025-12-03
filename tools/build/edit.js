@@ -150,6 +150,9 @@ class Edit extends BaseTool {
         new_string
       );
 
+      // Generate diff for preview
+      const diff = this.generateContextDiff(beforeContent, old_string, new_string);
+
       // Create modification record
       const modRef = db.collection('code-modifications').doc();
       await modRef.set({
@@ -164,6 +167,7 @@ class Edit extends BaseTool {
         oldString: old_string,
         newString: new_string,
         replacementCount: expected_replacements,
+        diff,
         userApproved: false,
         toolName: this.name,
         createdAt: FieldValue.serverTimestamp()
@@ -176,9 +180,10 @@ class Edit extends BaseTool {
           status: 'pending_approval',
           modId: modRef.id,
           filePath: file_path,
+          operation: 'update',
           replacementCount: expected_replacements,
           message: 'Edit request created. Waiting for user approval.',
-          diff: this.generateContextDiff(beforeContent, old_string, new_string)
+          diff
         };
       }
 
