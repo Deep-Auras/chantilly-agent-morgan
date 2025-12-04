@@ -23,6 +23,15 @@ const { getFirestore } = require('../config/firestore');
 
 // CSRF token generation middleware
 router.use((req, res, next) => {
+  // Handle case where session isn't available (e.g., during startup or session store error)
+  if (!req.session) {
+    logger.warn('Session not available, redirecting to login', { path: req.path });
+    if (req.headers.accept?.includes('text/html')) {
+      return res.redirect('/auth/login');
+    }
+    return res.status(500).json({ error: 'Session not available' });
+  }
+
   if (!req.session.csrfToken) {
     req.session.csrfToken = require('crypto').randomBytes(32).toString('hex');
   }
