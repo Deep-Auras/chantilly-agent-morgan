@@ -1,8 +1,9 @@
 extends ../layouts/dashboard
 
 block content
-  div(x-data="chatController()" x-init="init()" @keydown.escape="showSettings = false")
-    .flex.flex-col(style="height: calc(100vh - 12rem)")
+  //- Use negative margins to counteract container padding and fill nearly full viewport
+  div.-my-8.-mx-4.px-4(x-data="chatController()" x-init="init()" @keydown.escape="showSettings = false" class="md:-mx-6 md:-my-10 md:px-6" style="height: calc(100vh - 2rem)")
+    .flex.flex-col.h-full
 
       //- Chat Header
       .bg-white.rounded-t-lg.shadow.px-6.py-4.border-b.border-gray-200
