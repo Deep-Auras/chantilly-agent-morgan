@@ -2042,4 +2042,18 @@ router.post('/api/chat/reject/:modId', async (req, res) => {
   }
 });
 
+// Google Docs List API
+router.get('/api/docs/list', async (req, res) => {
+  try {
+    const { getGoogleDocsService } = require('../services/googleDocsService');
+    const service = getGoogleDocsService();
+    const query = req.query.q || '';
+    const files = await service.listDocuments(query);
+    res.json({ success: true, files });
+  } catch (error) {
+    logger.error('Failed to list google docs', { error: error.message });
+    res.status(500).json({ error: 'Failed to list documents' });
+  }
+});
+
 module.exports = router;

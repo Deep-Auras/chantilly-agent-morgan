@@ -235,6 +235,27 @@ block content
           }
         },
 
+        async loadDocs() {
+          this.docsLoading = true;
+          try {
+            const response = await fetch(`/dashboard/api/docs/list?q=${encodeURIComponent(this.docQuery)}`);
+            const data = await response.json();
+            if (data.success) {
+              this.docs = data.files;
+            }
+          } catch (e) {
+            console.error('Failed to load docs', e);
+          } finally {
+            this.docsLoading = false;
+          }
+        },
+
+        selectDoc(doc) {
+          this.newMessage = `Import Google Doc: ${doc.name} (ID: ${doc.id})`;
+          this.showDocPicker = false;
+          this.$refs.messageInput.focus();
+        },
+
         async loadMessages() {
           try {
             const response = await fetch(`/dashboard/api/chat/messages?conversationId=${this.conversationId}`, {
