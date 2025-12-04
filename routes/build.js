@@ -1114,7 +1114,9 @@ router.get('/github/commits/:branch', requireBuildAccess, async (req, res) => {
  */
 router.post('/github/revert', requireBuildAccess, async (req, res) => {
   try {
-    const { sha, branch } = req.body;
+    const { sha } = req.body;
+    // Decode HTML entities from branch name (e.g., &#x2F; -> /)
+    const branch = req.body.branch ? decodeHtmlEntities(req.body.branch) : null;
 
     if (!sha || typeof sha !== 'string') {
       return res.status(400).json({

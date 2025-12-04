@@ -155,10 +155,12 @@ block content
                 x-model="newMessage"
                 x-ref="messageInput"
                 @keydown.enter.prevent="handleEnterKey($event)"
+                @input="autoResizeTextarea($event)"
                 :disabled="streaming"
                 placeholder="Type your message..."
                 rows="1"
                 maxlength="10000"
+                style="min-height: 48px; max-height: 96px; overflow-y: auto;"
                 class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100"
               )
               .text-xs.text-gray-500.mt-1(x-show="newMessage.length > 0" x-cloak)
@@ -321,6 +323,11 @@ block content
           const message = this.newMessage.trim();
           this.newMessage = '';
 
+          // Reset textarea height after clearing
+          if (this.$refs.messageInput) {
+            this.$refs.messageInput.style.height = '48px';
+          }
+
           // Add user message to UI immediately
           this.messages.push({
             id: `temp_${Date.now()}`,
@@ -478,6 +485,14 @@ block content
           } else {
             // Shift+Enter = new line (default behavior)
           }
+        },
+
+        autoResizeTextarea(event) {
+          const textarea = event.target;
+          // Reset height to auto to get correct scrollHeight
+          textarea.style.height = 'auto';
+          // Set height to scrollHeight, capped at max-height (96px = ~3 lines)
+          textarea.style.height = Math.min(textarea.scrollHeight, 96) + 'px';
         },
 
         scrollToBottom() {
