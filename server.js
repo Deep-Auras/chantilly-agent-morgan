@@ -56,6 +56,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 // Note: csurf is deprecated, using custom CSRF implementation
 const session = require('express-session');
 const flash = require('connect-flash');
+const { FirestoreStore } = require('firestore-store');
 
 // CRITICAL: Load session secret from Firestore, not env vars
 // Generate and store persistent session secret in Firestore if it doesn't exist
@@ -82,7 +83,16 @@ const getSessionSecret = async () => {
 let sessionMiddleware = null;
 const initSession = async () => {
   const secret = await getSessionSecret();
+  const { getFirestore } = require('./config/firestore');
+  const db = getFirestore();
+
+  // Create Firestore session store for persistence across Cloud Run revisions
+  const firestoreStore = new FirestoreStore({
+    database: db
+  });
+
   sessionMiddleware = session({
+    store: firestoreStore,
     secret: secret,
     resave: false,
     saveUninitialized: false,
@@ -94,6 +104,8 @@ const initSession = async () => {
       sameSite: 'lax'
     }
   });
+
+  logger.info('Session middleware initialized with Firestore store');
 };
 
 // Apply session middleware (will be initialized after Firestore is ready)
