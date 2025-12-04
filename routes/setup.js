@@ -129,7 +129,7 @@ router.get('/', async (req, res) => {
 /**
  * POST /setup/complete - Complete setup wizard
  */
-router.post('/complete', express.json(), async (req, res) => {
+router.post('/complete', async (req, res) => {
   try {
     // Verify setup is still needed
     const setupNeeded = await isSetupNeeded();
