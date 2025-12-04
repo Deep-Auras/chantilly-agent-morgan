@@ -804,12 +804,39 @@ router.get('/api/dashboard/activity', requireAdmin, async (req, res) => {
 
     const activities = logsSnapshot.docs.map(doc => {
       const data = doc.data();
+
+      // Format timestamp for display
+      let timestampStr = 'Unknown';
+      if (data.timestamp) {
+        const date = data.timestamp.toDate ? data.timestamp.toDate() : new Date(data.timestamp);
+        timestampStr = date.toLocaleString();
+      }
+
+      // Generate a human-readable message from the action
+      const actionMessages = {
+        'config_update': `${data.username || 'System'} updated ${data.section || 'configuration'}`,
+        'knowledge_add': `${data.username || 'System'} added knowledge entry`,
+        'knowledge_update': `${data.username || 'System'} updated knowledge entry`,
+        'knowledge_delete': `${data.username || 'System'} deleted knowledge entry`,
+        'tool_toggle': `${data.username || 'System'} ${data.enabled ? 'enabled' : 'disabled'} ${data.toolName || 'a tool'}`,
+        'tool_access_update': `${data.username || 'System'} updated tool access`,
+        'platform_update': `${data.username || 'System'} updated ${data.platformId || 'platform'} settings`,
+        'user_login': `${data.username || 'User'} logged in`,
+        'password_change': `${data.username || 'User'} changed password`,
+        'user_create': `${data.username || 'Admin'} created user ${data.targetUserId || ''}`,
+        'user_update': `${data.username || 'Admin'} updated user ${data.targetUserId || ''}`,
+        'user_delete': `${data.username || 'Admin'} deleted user ${data.targetUserId || ''}`
+      };
+      const message = actionMessages[data.action] || `${data.username || 'System'} performed ${data.action || 'action'}`;
+
       return {
         id: doc.id,
         action: data.action,
         username: data.username,
         userId: data.userId,
         timestamp: data.timestamp,
+        timestampStr,
+        message,
         // Include all detail fields
         entryId: data.entryId,
         toolName: data.toolName,
@@ -817,7 +844,8 @@ router.get('/api/dashboard/activity', requireAdmin, async (req, res) => {
         platformId: data.platformId,
         details: data.details,
         enabled: data.enabled,
-        roles: data.roles
+        roles: data.roles,
+        targetUserId: data.targetUserId
       };
     });
 
