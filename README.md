@@ -6,12 +6,14 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
 
 ## Features
 
+- **Web GUI**: Full dashboard management with setup wizard on 1st run
+- **Build Mode**: Modify and extend the agent with natural language
 - **AI Personality Management**: 8 trait categories with API-configurable personalities
 - **Custom Tools**: AI-selected dynamic tools for real-world processes
 - **Task Templates**: Executable JavaScript with auto-repair and ReasoningMemory learning
 - **Knowledge Base**: Vector search with persistent storage and retrieval
 - **Enterprise Security**: OWASP LLM Top 10:2025 compliant
-- **Multi-Platform**: Bitrix24, Google Chat, Asana integrations
+- **Multi-Platform**: Bitrix24, Google Chat, Asana integrations, Github
 
 ---
 
