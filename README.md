@@ -17,7 +17,7 @@ Read the [Chantilly ADK Whitepaper](chantilly-adk-whitepaper.md) for architectur
 
 ## Quick Start (~14 min)
 
-[![Watch on Youtube](https://i9.ytimg.com/vi_webp/02YKK2U0Z-8/mq1.webp?sqp=CKDe0ckG-oaymwEmCMACELQB8quKqQMa8AEB-AH-CYAC0AWKAgwIABABGHIgXShHMA8=&rs=AOn4CLASHdHzzHp26bziOtsLa77JHhfhfw)](https://youtu.be/02YKK2U0Z-8)
+<iframe width="560" height="315" src="https://www.youtube.com/embed/02YKK2U0Z-8?si=nwyl0bicfBPOYljj" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 
 ### Prerequisites
 
