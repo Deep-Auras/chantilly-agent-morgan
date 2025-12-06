@@ -4,6 +4,7 @@ const { logger } = require('../utils/logger');
 const embeddingService = require('../services/embeddingService');
 const { FieldValue } = require('@google-cloud/firestore');
 const { FeatureFlags } = require('../utils/featureFlags');
+const { getKnowledgeBase } = require('../services/knowledgeBase');
 
 class KnowledgeManagementTool extends BaseTool {
   constructor(context) {
@@ -416,6 +417,15 @@ class KnowledgeManagementTool extends BaseTool {
     // Create document immediately
     const docRef = await this.db.collection('knowledge-base').add(docData);
 
+    // Invalidate the KnowledgeBaseService cache so dashboard shows new document immediately
+    try {
+      const kb = getKnowledgeBase();
+      await kb.loadCache();
+      this.log('info', 'Knowledge base cache invalidated after add');
+    } catch (cacheError) {
+      this.log('warn', 'Failed to invalidate KB cache after add', { error: cacheError.message });
+    }
+
     this.log('info', 'Knowledge base entry created immediately', {
       documentId: docRef.id,
       title: docData.title,
@@ -541,6 +551,15 @@ class KnowledgeManagementTool extends BaseTool {
 
     await docRef.update(updates);
 
+    // Invalidate the KnowledgeBaseService cache so dashboard shows update immediately
+    try {
+      const kb = getKnowledgeBase();
+      await kb.loadCache();
+      this.log('info', 'Knowledge base cache invalidated after update');
+    } catch (cacheError) {
+      this.log('warn', 'Failed to invalidate KB cache after update', { error: cacheError.message });
+    }
+
     this.log('info', 'Knowledge base entry updated', {
       documentId: documentId,
       updates: Object.keys(updates)
@@ -590,6 +609,15 @@ class KnowledgeManagementTool extends BaseTool {
 
     // User confirmed, delete the document
     await docRef.delete();
+
+    // Invalidate the KnowledgeBaseService cache so dashboard reflects deletion immediately
+    try {
+      const kb = getKnowledgeBase();
+      await kb.loadCache();
+      this.log('info', 'Knowledge base cache invalidated after delete');
+    } catch (cacheError) {
+      this.log('warn', 'Failed to invalidate KB cache after delete', { error: cacheError.message });
+    }
 
     this.log('info', 'Knowledge base entry deleted', {
       documentId: documentId,
