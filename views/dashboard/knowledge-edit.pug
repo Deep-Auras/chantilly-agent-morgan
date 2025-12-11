@@ -100,12 +100,17 @@ block content
             )
             span.text-sm.font-medium.text-gray-700 Enabled (visible to AI)
 
+  //- Entry data (safely encoded)
+  script(type="application/json" id="entry-data").
+    !{JSON.stringify(entry).replace(/</g, '\\u003c').replace(/>/g, '\\u003e')}
+
   //- Alpine.js Controller
   script.
     function editController() {
+      const entryData = JSON.parse(document.getElementById('entry-data').textContent);
       return {
-        entry: !{JSON.stringify(entry)},
-        tagsInput: !{JSON.stringify((entry.tags || []).join(', '))},
+        entry: entryData,
+        tagsInput: (entryData.tags || []).join(', '),
         saving: false,
 
         async saveEntry() {

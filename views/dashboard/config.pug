@@ -679,11 +679,19 @@ block content
         },
 
         generateSecret(fieldName) {
-          // Generate a cryptographically secure random secret (64 bytes = 128 hex chars)
-          const array = new Uint8Array(64);
-          crypto.getRandomValues(array);
-          const secret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-          this.securityKeys[fieldName] = secret;
+          if (fieldName === 'CREDENTIAL_ENCRYPTION_KEY') {
+            // CREDENTIAL_ENCRYPTION_KEY needs 32 bytes base64-encoded for AES-256
+            const array = new Uint8Array(32);
+            crypto.getRandomValues(array);
+            const secret = btoa(String.fromCharCode.apply(null, array));
+            this.securityKeys[fieldName] = secret;
+          } else {
+            // Other secrets use 64 bytes hex (128 chars)
+            const array = new Uint8Array(64);
+            crypto.getRandomValues(array);
+            const secret = Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+            this.securityKeys[fieldName] = secret;
+          }
         },
 
         async saveRbacProvider() {
@@ -736,6 +744,19 @@ block content
         },
 
         async saveSecurityKeys() {
+          // Filter out empty values to avoid overwriting existing keys
+          const updates = {};
+          for (const [key, value] of Object.entries(this.securityKeys)) {
+            if (value && value.trim() !== '') {
+              updates[key] = value;
+            }
+          }
+
+          if (Object.keys(updates).length === 0) {
+            alert('No changes to save. Enter a value in at least one field.');
+            return;
+          }
+
           if (!confirm('WARNING: Changing security keys will invalidate all existing sessions and encrypted credentials. Users will need to re-authenticate. Continue?')) {
             return;
           }
@@ -749,7 +770,7 @@ block content
               },
               body: JSON.stringify({
                 section: 'config',
-                updates: this.securityKeys
+                updates: updates
               })
             });
 

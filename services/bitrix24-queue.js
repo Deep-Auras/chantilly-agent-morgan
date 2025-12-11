@@ -72,6 +72,7 @@ const { logger } = require('../utils/logger');
 const { getFirestore, getFieldValue } = require('../config/firestore');
 const { convertForBitrixChat } = require('../utils/markdownToBB');
 const { BitrixAPIValidator } = require('./bitrixAPIValidator');
+const { getConfigManager } = require('./dashboard/configManager');
 
 class SlidingWindow {
   constructor(windowMs, maxRequests) {
@@ -166,12 +167,12 @@ class Bitrix24QueueManager {
         this.limits.maxRetries = parseInt(config.QUEUE_MAX_RETRIES) || 3;
       }
 
-      // Load Bitrix24 platform config
-      const platformDoc = await this.db.collection('agent').doc('platforms')
-        .collection('bitrix24').doc('config').get();
-      if (platformDoc.exists) {
-        const platformConfig = platformDoc.data();
-        this.webhookUrl = platformConfig.webhookUrl;
+      // Load Bitrix24 webhook URL from encrypted credentials
+      try {
+        const configManager = await getConfigManager();
+        this.webhookUrl = await configManager.getDecrypted('credentials', 'bitrix24_webhook_url');
+      } catch (error) {
+        logger.warn('Failed to load Bitrix24 webhook URL from credentials', { error: error.message });
       }
 
       // Initialize sliding window with loaded config

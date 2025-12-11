@@ -53,19 +53,17 @@ block content
         span(x-text="`Showing ${filteredEntries.length} of ${entries.length} entries`")
 
     //- Knowledge Base Table
-    .bg-white.rounded-lg.shadow.overflow-hidden
-      table.min-w-full.divide-y.divide-gray-200
+    .bg-white.rounded-lg.shadow.overflow-x-auto
+      table.w-full.divide-y.divide-gray-200(style="table-layout: fixed;")
         thead.bg-gray-50
           tr
-            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider(style="width: 65%;")
               | Title
-            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase(style="width: 15%;")
               | Category
-            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
-              | Priority
-            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider(style="width: 10%;")
               | Status
-            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+            th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider(style="width: 10%;")
               | Actions
 
         tbody.bg-white.divide-y.divide-gray-200
@@ -78,13 +76,10 @@ block content
                   x-show="entry.tags.length > 0"
                 )
 
-              td.px-6.py-4.whitespace-nowrap
+              td.px-6.py-4.whitespace-nowrap.overflow-hidden.text-ellipsis
                 span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800(
                   x-text="entry.category"
                 )
-
-              td.px-6.py-4.whitespace-nowrap
-                span.text-sm.text-gray-900(x-text="entry.priority")
 
               td.px-6.py-4.whitespace-nowrap
                 span.px-2.py-1.text-xs.rounded(

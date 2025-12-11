@@ -263,4 +263,14 @@ function getEncryption() {
   return instance;
 }
 
-module.exports = { Encryption, getEncryption };
+/**
+ * Reload encryption key from Firestore
+ * Call this after CREDENTIAL_ENCRYPTION_KEY is updated in dashboard
+ */
+async function reloadEncryption() {
+  instance = new Encryption();
+  await instance._ensureInitialized();
+  return instance;
+}
+
+module.exports = { Encryption, getEncryption, reloadEncryption };

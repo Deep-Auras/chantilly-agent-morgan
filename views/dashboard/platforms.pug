@@ -50,6 +50,15 @@ block content
               placeholder="https://yourcompany.bitrix24.com/rest/..."
             )
 
+          div(x-show="bitrix24.enabled")
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Bot User ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-lg(
+              type="text"
+              x-model="bitrix24.userId"
+              placeholder="123"
+            )
+            p.text-xs.text-gray-500.mt-1 Bitrix24 user ID for the bot account
+
           button.w-full.px-4.py-2.bg-cyan-500.text-white.rounded-lg.transition-colors(
             @click="savePlatform('bitrix24')"
             class="hover:bg-cyan-600"
@@ -330,7 +339,8 @@ block content
         bitrix24: {
           enabled: #{bitrix24.enabled || false},
           domain: '#{bitrix24.domain || ""}',
-          webhookUrl: '#{bitrix24.webhookUrl || ""}'
+          webhookUrl: '#{bitrix24.webhookUrl || ""}',
+          userId: '#{bitrix24.userId || ""}'
         },
         googleChat: {
           enabled: #{googleChat.enabled || false}

@@ -204,6 +204,20 @@ router.post('/config/update', requireAdmin, async (req, res) => {
     const configManager = await getConfigManager();
     await configManager.update(section, updates, req.user.id);
 
+    // If any security keys were updated, reload relevant services
+    if (section === 'config') {
+      if (updates.CREDENTIAL_ENCRYPTION_KEY) {
+        const { reloadEncryption } = require('../utils/encryption');
+        await reloadEncryption();
+        logger.info('Encryption service reloaded after key update');
+      }
+      if (updates.jwtSecret || updates.sessionSecret) {
+        const { reinitializeAuthService } = require('../services/auth');
+        await reinitializeAuthService();
+        logger.info('Auth service reloaded after secret update');
+      }
+    }
+
     // Audit log
     const db = getFirestore();
     await db.collection('audit-logs').add({

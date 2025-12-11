@@ -30,7 +30,10 @@ async function checkBitrix24API() {
     const configManager = await getConfigManager();
     const bitrix24 = await configManager.getPlatform('bitrix24');
 
-    if (!bitrix24 || !bitrix24.webhookUrl) {
+    // Get decrypted webhook URL from credentials
+    const webhookUrl = await configManager.getDecrypted('credentials', 'bitrix24_webhook_url');
+
+    if (!bitrix24 || !webhookUrl) {
       return {
         status: 'not_configured',
         message: 'Bitrix24 webhook URL not configured'
@@ -38,7 +41,7 @@ async function checkBitrix24API() {
     }
 
     await axios.get(
-      `${bitrix24.webhookUrl}profile`,
+      `${webhookUrl}profile`,
       { timeout: 5000 }
     );
     return {

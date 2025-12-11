@@ -228,28 +228,24 @@ async function validateWebhookSignature(req) {
     return false;
   }
 
-  // Only validate against OUTBOUND_SECRET for manual webhook calls
-  // Load from Bitrix24 platform config in Firestore
+  // Validate using CREDENTIAL_ENCRYPTION_KEY from agent/config
   let expectedSecret;
   try {
     const configManager = await getConfigManager();
-    const bitrix24Config = await configManager.getPlatform('bitrix24');
-    expectedSecret = bitrix24Config?.outboundSecret;
+    expectedSecret = await configManager.get('config', 'CREDENTIAL_ENCRYPTION_KEY');
   } catch (error) {
-    logger.error('Failed to load Bitrix24 config from Firestore', { error: error.message });
+    logger.error('Failed to load CREDENTIAL_ENCRYPTION_KEY from Firestore', { error: error.message });
   }
 
   if (!expectedSecret) {
-    logger.error('BITRIX24 outboundSecret not configured in platform settings');
+    logger.error('CREDENTIAL_ENCRYPTION_KEY not configured');
     return false;
   }
 
   logger.info('Comparing secrets', {
     expectedSecretLength: expectedSecret.length,
     providedSecretLength: providedSecret.length,
-    secretType: 'OUTBOUND_SECRET',
-    expectedSecret: expectedSecret.substring(0, 10) + '...',
-    providedSecret: providedSecret.substring(0, 10) + '...'
+    secretType: 'CREDENTIAL_ENCRYPTION_KEY'
   });
 
   const match = crypto.timingSafeEqual(
@@ -261,9 +257,7 @@ async function validateWebhookSignature(req) {
     logger.warn('Invalid webhook signature', {
       expectedSecretLength: expectedSecret.length,
       providedSecretLength: providedSecret.length,
-      expectedSecretPrefix: expectedSecret.substring(0, 10) + '...',
-      providedSecretPrefix: providedSecret.substring(0, 10) + '...',
-      secretType: 'OUTBOUND_SECRET'
+      secretType: 'CREDENTIAL_ENCRYPTION_KEY'
     });
   } else {
     logger.info('Webhook signature validation successful');
