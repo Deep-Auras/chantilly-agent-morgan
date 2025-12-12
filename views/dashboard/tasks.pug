@@ -3,62 +3,96 @@ extends ../layouts/dashboard
 block content
   .mb-6
     h2.text-xl.font-semibold Complex Task Templates
-    p.text-gray-600.text-sm View and manage task templates with auto-repair
+    p.text-gray-600.text-sm View and manage task templates
 
-  //- Templates Summary
-  .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
-    .bg-white.rounded-lg.shadow.p-4
-      .text-gray-500.text-sm Total Templates
-      .text-2xl.font-bold= templates.length
+  div(x-data="taskManager()")
+    //- Templates Summary
+    .grid.grid-cols-1.gap-4.mb-6(class="md:grid-cols-3")
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Total Templates
+        .text-2xl.font-bold= templates.length
 
-    .bg-white.rounded-lg.shadow.p-4
-      .text-gray-500.text-sm Enabled
-      .text-2xl.font-bold.text-green-600= templates.filter(t => t.enabled !== false).length
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Enabled
+        .text-2xl.font-bold.text-green-600= templates.filter(t => t.enabled !== false).length
 
-    .bg-white.rounded-lg.shadow.p-4
-      .text-gray-500.text-sm With Auto-Repair
-      .text-2xl.font-bold.text-blue-600= templates.filter(t => t.autoRepair).length
+      .bg-white.rounded-lg.shadow.p-4
+        .text-gray-500.text-sm Testing
+        .text-2xl.font-bold.text-yellow-600= templates.filter(t => t.testing === true).length
 
-  //- Templates Table
-  .bg-white.rounded-lg.shadow.overflow-hidden
-    table.min-w-full.divide-y.divide-gray-200
-      thead.bg-gray-50
-        tr
-          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
-            | Template ID
-          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
-            | Description
-          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
-            | Category
-          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
-            | Auto-Repair
-          th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
-            | Status
-
-      tbody.bg-white.divide-y.divide-gray-200
-        if templates.length === 0
-          tr
-            td.px-6.py-4.text-center.text-gray-500(colspan="5") No task templates found
-        else
-          each template in templates
+    //- Templates Table (with horizontal scroll)
+    .bg-white.rounded-lg.shadow.overflow-hidden.py-6
+      .overflow-x-auto.px-6
+        table.min-w-full.divide-y.divide-gray-200
+          thead.bg-gray-50
             tr
-              td.px-6.py-4.whitespace-nowrap
-                .font-medium.text-gray-900= template.id
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Name
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Category
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Status
+              th.px-6.py-3.text-left.text-xs.font-medium.text-gray-500.uppercase.tracking-wider
+                | Actions
 
-              td.px-6.py-4
-                .text-sm.text-gray-600= template.description || 'No description'
+          tbody.bg-white.divide-y.divide-gray-200
+            if templates.length === 0
+              tr
+                td.px-6.py-4.text-center.text-gray-500(colspan="4") No task templates found
+            else
+              each template in templates
+                tr
+                  td.px-6.py-4.whitespace-nowrap
+                    .font-medium.text-gray-900= template.name || template.id
 
-              td.px-6.py-4.whitespace-nowrap
-                span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800= template.category || 'general'
+                  td.px-6.py-4.whitespace-nowrap
+                    span.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800= template.category || 'general'
 
-              td.px-6.py-4.whitespace-nowrap
-                if template.autoRepair
-                  span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Enabled
-                else
-                  span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800 Disabled
+                  td.px-6.py-4.whitespace-nowrap
+                    .flex.gap-1
+                      if template.enabled !== false
+                        span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Enabled
+                      else
+                        span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800 Disabled
+                      if template.testing === true
+                        span.px-2.py-1.text-xs.rounded.bg-yellow-100.text-yellow-800 Testing
 
-              td.px-6.py-4.whitespace-nowrap
-                if template.enabled !== false
-                  span.px-2.py-1.text-xs.rounded.bg-green-100.text-green-800 Active
-                else
-                  span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-800 Inactive
+                  td.px-6.py-4.whitespace-nowrap.text-sm.font-medium
+                    .flex.gap-2
+                      a.text-blue-600(
+                        href=`/dashboard/tasks/${template.id}/edit`
+                        class="hover:text-blue-900"
+                      ) Edit
+                      button.text-red-600(
+                        @click=`deleteTask('${template.id}')`
+                        class="hover:text-red-900"
+                      ) Delete
+
+    //- Alpine.js Task Manager
+    script.
+      function taskManager() {
+        return {
+          async deleteTask(taskId) {
+            if (!confirm('Are you sure you want to delete this task template? This action cannot be undone.')) {
+              return;
+            }
+
+            try {
+              const response = await fetch(`/dashboard/api/tasks/${taskId}`, {
+                method: 'DELETE',
+                headers: { 'X-CSRF-Token': window.csrfToken }
+              });
+
+              if (response.ok) {
+                alert('Task template deleted successfully!');
+                window.location.reload();
+              } else {
+                const error = await response.json();
+                alert(`Error: ${error.error}`);
+              }
+            } catch (error) {
+              alert(`Error: ${error.message}`);
+            }
+          }
+        }
+      }

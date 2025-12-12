@@ -508,6 +508,163 @@ router.get('/tasks', async (req, res) => {
 });
 
 /**
+ * Task Template Edit Page
+ * GET /dashboard/tasks/:id/edit
+ */
+router.get('/tasks/:id/edit', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+    const taskId = req.params.id;
+
+    // Get task template
+    const taskDoc = await db.collection('task-templates').doc(taskId).get();
+
+    if (!taskDoc.exists) {
+      req.flash('error', 'Task template not found');
+      return res.redirect('/dashboard/tasks');
+    }
+
+    const template = {
+      id: taskDoc.id,
+      ...taskDoc.data()
+    };
+
+    res.locals.currentPage = 'tasks';
+    res.locals.title = `Edit Task: ${template.name || template.id}`;
+
+    res.render('dashboard/task-edit', {
+      template
+    });
+  } catch (error) {
+    logger.error('Task edit page error', {
+      error: error.message,
+      taskId: req.params.id,
+      userId: req.user.id
+    });
+    req.flash('error', 'Failed to load task template');
+    res.redirect('/dashboard/tasks');
+  }
+});
+
+/**
+ * Update Task Template
+ * PUT /dashboard/api/tasks/:id
+ */
+router.put('/api/tasks/:id', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+    const taskId = req.params.id;
+    const { name, description, enabled, testing, context, keywords } = req.body;
+
+    // Validate task exists
+    const taskDoc = await db.collection('task-templates').doc(taskId).get();
+    if (!taskDoc.exists) {
+      return res.status(404).json({ error: 'Task template not found' });
+    }
+
+    // Build update object with only provided fields
+    const updateData = {};
+
+    if (name !== undefined) {
+      if (typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({ error: 'Name must be a non-empty string' });
+      }
+      updateData.name = name.trim();
+    }
+
+    if (description !== undefined) {
+      if (typeof description !== 'string') {
+        return res.status(400).json({ error: 'Description must be a string' });
+      }
+      updateData.description = description;
+    }
+
+    if (enabled !== undefined) {
+      updateData.enabled = Boolean(enabled);
+    }
+
+    if (testing !== undefined) {
+      updateData.testing = Boolean(testing);
+    }
+
+    if (context !== undefined) {
+      if (typeof context !== 'string') {
+        return res.status(400).json({ error: 'Context must be a string' });
+      }
+      updateData.context = context;
+    }
+
+    if (keywords !== undefined) {
+      if (!Array.isArray(keywords)) {
+        return res.status(400).json({ error: 'Keywords must be an array' });
+      }
+      // Filter and validate keywords
+      updateData.keywords = keywords
+        .filter(k => typeof k === 'string' && k.trim().length > 0)
+        .map(k => k.trim());
+    }
+
+    // Update in Firestore
+    await db.collection('task-templates').doc(taskId).update(updateData);
+
+    logger.info('Task template updated', {
+      taskId,
+      updatedFields: Object.keys(updateData),
+      userId: req.user.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Task template updated successfully'
+    });
+  } catch (error) {
+    logger.error('Task template update error', {
+      error: error.message,
+      taskId: req.params.id,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to update task template' });
+  }
+});
+
+/**
+ * Delete Task Template
+ * DELETE /dashboard/api/tasks/:id
+ */
+router.delete('/api/tasks/:id', requireAdmin, async (req, res) => {
+  try {
+    const db = getFirestore();
+    const taskId = req.params.id;
+
+    // Validate task exists
+    const taskDoc = await db.collection('task-templates').doc(taskId).get();
+    if (!taskDoc.exists) {
+      return res.status(404).json({ error: 'Task template not found' });
+    }
+
+    // Delete from Firestore
+    await db.collection('task-templates').doc(taskId).delete();
+
+    logger.info('Task template deleted', {
+      taskId,
+      userId: req.user.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Task template deleted successfully'
+    });
+  } catch (error) {
+    logger.error('Task template delete error', {
+      error: error.message,
+      taskId: req.params.id,
+      userId: req.user.id
+    });
+    res.status(500).json({ error: 'Failed to delete task template' });
+  }
+});
+
+/**
  * Users Dashboard (Admin Only)
  * GET /dashboard/users
  */

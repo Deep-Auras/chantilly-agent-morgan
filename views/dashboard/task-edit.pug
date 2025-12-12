@@ -1,0 +1,196 @@
+extends ../layouts/dashboard
+
+block content
+  .mb-6
+    .flex.items-center.gap-2.mb-2
+      a.text-blue-600(href="/dashboard/tasks" class="hover:text-blue-800")
+        | &larr; Back to Tasks
+    h2.text-xl.font-semibold Edit Task Template
+    p.text-gray-600.text-sm= template.id
+
+  div(x-data="taskEditor()" x-init="init()")
+    //- Editable Fields Card
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h3.text-lg.font-semibold.mb-4 Basic Information
+
+      .grid.grid-cols-1.gap-6(class="lg:grid-cols-2")
+        div
+          .mb-4
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Name
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+              type="text"
+              x-model="name"
+              placeholder="Task name"
+            )
+
+          .mb-4
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Status
+            .flex.items-center.gap-6
+              label.flex.items-center.gap-2.cursor-pointer
+                .relative
+                  input.sr-only(type="checkbox" x-model="enabled")
+                  .w-10.h-6.bg-gray-200.rounded-full.shadow-inner(:class="enabled ? 'bg-green-500' : 'bg-gray-200'")
+                  .dot.absolute.w-4.h-4.bg-white.rounded-full.shadow.left-1.top-1.transition(:class="enabled ? 'transform translate-x-4' : ''")
+                span.text-sm.font-medium(:class="enabled ? 'text-green-600' : 'text-gray-500'") Enabled
+
+              label.flex.items-center.gap-2.cursor-pointer
+                .relative
+                  input.sr-only(type="checkbox" x-model="testing")
+                  .w-10.h-6.bg-gray-200.rounded-full.shadow-inner(:class="testing ? 'bg-yellow-500' : 'bg-gray-200'")
+                  .dot.absolute.w-4.h-4.bg-white.rounded-full.shadow.left-1.top-1.transition(:class="testing ? 'transform translate-x-4' : ''")
+                span.text-sm.font-medium(:class="testing ? 'text-yellow-600' : 'text-gray-500'") Testing Mode
+
+          if template.category && template.category.length > 0
+            .mb-4
+              span.text-sm.font-medium.text-gray-500 Category:
+              each cat in template.category
+                span.ml-2.px-2.py-1.text-xs.rounded.bg-blue-100.text-blue-800= cat
+
+        div
+          .mb-4
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Description
+            textarea.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+              x-model="description"
+              rows="3"
+              placeholder="Task description..."
+            )
+
+          .mb-4
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Context
+            textarea.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+              x-model="context"
+              rows="3"
+              placeholder="Additional context for the task..."
+            )
+
+      .mb-4
+        label.block.text-sm.font-medium.text-gray-700.mb-2 Keywords
+        .flex.flex-wrap.gap-2.mb-2
+          template(x-for="(keyword, index) in keywords" :key="index")
+            span.px-2.py-1.bg-blue-100.text-blue-800.rounded.text-sm.flex.items-center.gap-1
+              span(x-text="keyword")
+              button.text-blue-600(@click="removeKeyword(index)" type="button" class="hover:text-blue-900") &times;
+        .flex.gap-2
+          input.flex-1.px-3.py-2.border.border-gray-300.rounded-md(
+            type="text"
+            x-model="newKeyword"
+            @keydown.enter.prevent="addKeyword()"
+            placeholder="Add keyword..."
+          )
+          button.px-3.py-2.bg-blue-600.text-white.rounded(
+            type="button"
+            @click="addKeyword()"
+            class="hover:bg-blue-700"
+          ) Add
+
+      button.w-full.px-4.py-2.bg-blue-600.text-white.rounded(
+        @click="saveTask()"
+        :disabled="saving"
+        class="hover:bg-blue-700 mt-4"
+      )
+        span(x-show="!saving") Save Changes
+        span(x-show="saving") Saving...
+
+    //- Parameters Card (Full Width)
+    .bg-white.rounded-lg.shadow.p-6.mb-6
+      h3.text-lg.font-semibold.mb-4 Parameters
+      - var paramSchema = template.definition && template.definition.parameterSchema
+      - var params = paramSchema && paramSchema.properties ? Object.keys(paramSchema.properties) : []
+      - var requiredParams = paramSchema && paramSchema.required ? paramSchema.required : []
+      if params.length > 0
+        .overflow-x-auto
+          table.min-w-full.divide-y.divide-gray-200
+            thead.bg-gray-50
+              tr
+                th.px-4.py-2.text-left.text-xs.font-medium.text-gray-500.uppercase Name
+                th.px-4.py-2.text-left.text-xs.font-medium.text-gray-500.uppercase Type
+                th.px-4.py-2.text-left.text-xs.font-medium.text-gray-500.uppercase Required
+                th.px-4.py-2.text-left.text-xs.font-medium.text-gray-500.uppercase Description
+            tbody.divide-y.divide-gray-200
+              each paramName in params
+                - var param = paramSchema.properties[paramName]
+                tr
+                  td.px-4.py-2.text-sm.font-medium.text-gray-900= paramName
+                  td.px-4.py-2.text-sm.text-gray-600= param.type || 'string'
+                  td.px-4.py-2
+                    if requiredParams.includes(paramName)
+                      span.px-2.py-1.text-xs.rounded.bg-red-100.text-red-800 Required
+                    else
+                      span.px-2.py-1.text-xs.rounded.bg-gray-100.text-gray-600 Optional
+                  td.px-4.py-2.text-sm.text-gray-600= param.description || '-'
+      else
+        p.text-gray-500.text-sm No parameters defined
+
+    //- Execution Script Card (Full Width)
+    .bg-white.rounded-lg.shadow.p-6
+      h3.text-lg.font-semibold.mb-4 Execution Script
+      if template.executionScript
+        pre.bg-gray-900.text-gray-100.p-4.rounded-lg.overflow-x-auto.text-sm(style="max-height: 600px;")
+          code= template.executionScript
+      else
+        p.text-gray-500.text-sm No execution script defined
+
+  //- Alpine.js Task Editor
+  script.
+    function taskEditor() {
+      return {
+        name: '!{(template.name || "").replace(/'/g, "\\'")}',
+        description: `!{(template.description || "").replace(/`/g, "\\`").replace(/\$/g, "\\$")}`,
+        enabled: !{template.enabled !== false},
+        testing: !{template.testing === true},
+        context: `!{(template.context || "").replace(/`/g, "\\`").replace(/\$/g, "\\$")}`,
+        keywords: !{JSON.stringify(template.keywords || [])},
+        newKeyword: '',
+        saving: false,
+
+        init() {
+          // Initialize with template data
+        },
+
+        addKeyword() {
+          const keyword = this.newKeyword.trim();
+          if (keyword && !this.keywords.includes(keyword)) {
+            this.keywords.push(keyword);
+            this.newKeyword = '';
+          }
+        },
+
+        removeKeyword(index) {
+          this.keywords.splice(index, 1);
+        },
+
+        async saveTask() {
+          this.saving = true;
+
+          try {
+            const response = await fetch('/dashboard/api/tasks/!{template.id}', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                name: this.name,
+                description: this.description,
+                enabled: this.enabled,
+                testing: this.testing,
+                context: this.context,
+                keywords: this.keywords
+              })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              alert('Task template saved successfully!');
+            } else {
+              alert(`Error: ${data.error}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          } finally {
+            this.saving = false;
+          }
+        }
+      }
+    }
