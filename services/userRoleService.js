@@ -73,27 +73,31 @@ class UserRoleService {
    * Get user role from cache or Firestore
    * Returns 'user' role for unknown users (fail-safe)
    *
-   * @param {string} bitrixUserId - Bitrix24 user ID (FROM_USER_ID)
+   * Supports two lookup modes:
+   * 1. Bitrix24 user ID (numeric) - looks up directly in bitrix_users collection
+   * 2. Dashboard user ID (string like "rrahman") - looks up in users collection for bitrix24UserId mapping
+   *
+   * @param {string} userId - Bitrix24 user ID or dashboard user ID
    * @returns {Promise<string>} - User role ('admin' or 'user')
    */
-  async getUserRole(bitrixUserId) {
+  async getUserRole(userId) {
     try {
       // Validate input
-      if (!bitrixUserId) {
-        logger.warn('getUserRole called with empty bitrixUserId, defaulting to user role');
+      if (!userId) {
+        logger.warn('getUserRole called with empty userId, defaulting to user role');
         return 'user';
       }
 
-      const bitrixUserIdStr = String(bitrixUserId);
+      const userIdStr = String(userId);
 
       // Check cache first
-      const cached = this.cache.get(bitrixUserIdStr);
+      const cached = this.cache.get(userIdStr);
       const now = Date.now();
 
       if (cached && (now - cached.timestamp) < this.cacheTimeout) {
         this.metrics.cacheHits++;
         logger.debug('User role retrieved from cache', {
-          bitrixUserId: bitrixUserIdStr,
+          userId: userIdStr,
           role: cached.role,
           cacheAge: `${((now - cached.timestamp) / 1000).toFixed(1)}s`
         });
@@ -104,15 +108,56 @@ class UserRoleService {
       this.metrics.cacheMisses++;
       this.metrics.firestoreReads++;
 
+      // Determine if this is a Bitrix24 user ID (numeric) or dashboard user ID (non-numeric)
+      const isNumericId = /^\d+$/.test(userIdStr);
+      let bitrixUserId = userIdStr;
+
+      // If non-numeric, check dashboard users collection for bitrix24UserId mapping
+      if (!isNumericId) {
+        const dashboardUserDoc = await this.db
+          .collection('users')
+          .doc(userIdStr)
+          .get();
+
+        if (dashboardUserDoc.exists) {
+          const dashboardUserData = dashboardUserDoc.data();
+          if (dashboardUserData.bitrix24UserId) {
+            bitrixUserId = String(dashboardUserData.bitrix24UserId);
+            logger.info('Dashboard user mapped to Bitrix24 user ID', {
+              dashboardUserId: userIdStr,
+              bitrix24UserId: bitrixUserId
+            });
+          } else {
+            // Dashboard user exists but no Bitrix24 mapping - use dashboard role directly
+            const role = dashboardUserData.role || 'user';
+            this.setCacheEntry(userIdStr, role);
+            logger.info('Using dashboard user role (no Bitrix24 mapping)', {
+              dashboardUserId: userIdStr,
+              role
+            });
+            return role;
+          }
+        } else {
+          this.metrics.unknownUsers++;
+          logger.warn('Unknown user accessing system (defaulting to user role)', {
+            userId: userIdStr,
+            isNumericId
+          });
+          return 'user';
+        }
+      }
+
+      // Look up role in bitrix_users collection
       const doc = await this.db
         .collection('bitrix_users')
-        .doc(bitrixUserIdStr)
+        .doc(bitrixUserId)
         .get();
 
       if (!doc.exists) {
         this.metrics.unknownUsers++;
         logger.warn('Unknown Bitrix user accessing system (defaulting to user role)', {
-          bitrixUserId: bitrixUserIdStr,
+          bitrixUserId: bitrixUserId,
+          originalUserId: userIdStr,
           recommendation: 'Create mapping with: node scripts/createBitrixUserMapping.js'
         });
         return 'user'; // Fail-safe: unknown users get minimal privileges
@@ -121,19 +166,20 @@ class UserRoleService {
       const userData = doc.data();
       const role = userData.role || 'user';
 
-      // Update cache with LRU eviction
-      this.setCacheEntry(bitrixUserIdStr, role);
+      // Update cache with LRU eviction (cache by original userId for faster lookups)
+      this.setCacheEntry(userIdStr, role);
 
       // Update lastSeen timestamp in Firestore (non-blocking)
-      this.updateLastSeen(bitrixUserIdStr).catch(err => {
+      this.updateLastSeen(bitrixUserId).catch(err => {
         logger.error('Failed to update lastSeen timestamp', {
-          bitrixUserId: bitrixUserIdStr,
+          bitrixUserId: bitrixUserId,
           error: err.message
         });
       });
 
       logger.info('User role retrieved from Firestore', {
-        bitrixUserId: bitrixUserIdStr,
+        originalUserId: userIdStr,
+        bitrixUserId: bitrixUserId,
         role,
         internalUserId: userData.internalUserId
       });
@@ -142,7 +188,7 @@ class UserRoleService {
 
     } catch (error) {
       logger.error('getUserRole failed, defaulting to user role', {
-        bitrixUserId,
+        userId,
         error: error.message,
         stack: error.stack
       });

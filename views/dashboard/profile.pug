@@ -63,6 +63,30 @@ block content
           span(x-show="!pictureLoading") Update Picture
           span(x-show="pictureLoading") Updating...
 
+    //- Platform Integration (only show if Bitrix24 is enabled)
+    if bitrix24Enabled
+      .bg-white.rounded-lg.shadow.p-6.mb-6
+        h3.text-lg.font-semibold.mb-4 Platform Integration
+        p.text-sm.text-gray-600.mb-4 Link your account to external platforms for unified access control.
+
+        form(@submit.prevent="updateBitrix24UserId()")
+          .mb-4
+            label.block.text-sm.font-medium.text-gray-700.mb-2 Bitrix24 User ID
+            input.w-full.px-3.py-2.border.border-gray-300.rounded-md(
+              type="text"
+              x-model="bitrix24UserId"
+              placeholder="e.g., 123"
+            )
+            p.text-xs.text-gray-500.mt-1 Your numeric Bitrix24 user ID. This links your web chat account to Bitrix24 RBAC for unified tool access.
+
+          button.px-4.py-2.bg-blue-600.text-white.rounded(
+            type="submit"
+            class="hover:bg-blue-700"
+            :disabled="bitrix24Loading"
+          )
+            span(x-show="!bitrix24Loading") Save Bitrix24 Link
+            span(x-show="bitrix24Loading") Saving...
+
     //- Update Email
     .bg-white.rounded-lg.shadow.p-6.mb-6
       h3.text-lg.font-semibold.mb-4 Email Address
@@ -132,15 +156,52 @@ block content
         email: '!{user.email}',
         profilePictureUrl: '!{user.profilePicture || ""}',
         profilePictureError: false,
+        bitrix24UserId: '!{user.bitrix24UserId || ""}',
         currentPassword: '',
         newPassword: '',
         confirmPassword: '',
         emailLoading: false,
         passwordLoading: false,
         pictureLoading: false,
+        bitrix24Loading: false,
 
         init() {
           // Initialize with user's current email and profile picture
+        },
+
+        async updateBitrix24UserId() {
+          // Validate - must be numeric or empty
+          if (this.bitrix24UserId && !/^\d+$/.test(this.bitrix24UserId)) {
+            alert('Bitrix24 User ID must be a numeric value');
+            return;
+          }
+
+          this.bitrix24Loading = true;
+
+          try {
+            const response = await fetch('/dashboard/api/profile', {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-Token': window.csrfToken
+              },
+              body: JSON.stringify({
+                bitrix24UserId: this.bitrix24UserId || null
+              })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              alert('Bitrix24 User ID updated successfully! Your web chat will now use Bitrix24 RBAC.');
+            } else {
+              alert(`Error: ${data.error}`);
+            }
+          } catch (error) {
+            alert(`Error: ${error.message}`);
+          } finally {
+            this.bitrix24Loading = false;
+          }
         },
 
         async updateProfilePicture() {

@@ -23,7 +23,8 @@ block content
             @change="saveRbacProvider()"
             class="focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           )
-            option(value="bitrix24") Bitrix24
+            if bitrix24Enabled
+              option(value="bitrix24") Bitrix24
             option(value="chantilly") Chantilly User Management
 
     //- Core Configuration Section

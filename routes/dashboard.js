@@ -168,10 +168,15 @@ router.get('/config', requireAdmin, async (req, res) => {
     res.locals.currentPage = 'config';
     res.locals.title = 'Agent Configuration';
 
+    // Check if Bitrix24 is enabled for RBAC option
+    const bitrix24Config = await configManager.getPlatform('bitrix24');
+    const bitrix24Enabled = bitrix24Config?.enabled || false;
+
     res.render('dashboard/config', {
       config: config || {},
       featureFlags: featureFlags || {},
-      rateLimits: rateLimits || {}
+      rateLimits: rateLimits || {},
+      bitrix24Enabled
     });
   } catch (error) {
     logger.error('Configuration dashboard error', {
@@ -525,15 +530,21 @@ router.get('/users', requireAdmin, async (req, res) => {
         lastLogin: data.lastLogin,
         loginAttempts: data.loginAttempts || 0,
         locked: data.locked || false,
-        profilePicture: data.profilePicture || null
+        profilePicture: data.profilePicture || null,
+        bitrix24UserId: data.bitrix24UserId || null
       };
     });
+
+    // Check if Bitrix24 is enabled
+    const bitrix24Config = await configManager.getPlatform('bitrix24');
+    const bitrix24Enabled = bitrix24Config?.enabled || false;
 
     res.locals.currentPage = 'users';
     res.locals.title = 'User Management';
 
     res.render('dashboard/users', {
-      users
+      users,
+      bitrix24Enabled
     });
   } catch (error) {
     logger.error('Users dashboard error', {
@@ -1053,7 +1064,8 @@ router.get('/api/users/:id', requireAdmin, async (req, res) => {
       createdAt: userData.createdAt,
       lastLogin: userData.lastLogin,
       locked: userData.locked || false,
-      profilePicture: userData.profilePicture || null
+      profilePicture: userData.profilePicture || null,
+      bitrix24UserId: userData.bitrix24UserId || null
     });
   } catch (error) {
     logger.error('Failed to get user details', {
@@ -1069,7 +1081,7 @@ router.get('/api/users/:id', requireAdmin, async (req, res) => {
 router.put('/api/users/:id', requireAdmin, async (req, res) => {
   try {
     const db = getFirestore();
-    const { email, role } = req.body;
+    const { email, role, bitrix24UserId } = req.body;
 
     // Validate role
     if (role && !['user', 'admin'].includes(role)) {
@@ -1079,6 +1091,11 @@ router.put('/api/users/:id', requireAdmin, async (req, res) => {
     // Validate email format (basic)
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    // Validate Bitrix24 User ID (must be numeric or null)
+    if (bitrix24UserId !== undefined && bitrix24UserId !== null && !/^\d+$/.test(String(bitrix24UserId))) {
+      return res.status(400).json({ error: 'Bitrix24 User ID must be a numeric value' });
     }
 
     // Check if user exists
@@ -1095,8 +1112,24 @@ router.put('/api/users/:id', requireAdmin, async (req, res) => {
     const updates = {};
     if (email !== undefined) updates.email = email;
     if (role !== undefined) updates.role = role;
+    if (bitrix24UserId !== undefined) updates.bitrix24UserId = bitrix24UserId || null;
 
     await db.collection('users').doc(req.params.id).update(updates);
+
+    // Invalidate user role cache if bitrix24UserId was updated
+    if (bitrix24UserId !== undefined) {
+      try {
+        const { getUserRoleService } = require('../services/userRoleService');
+        const userRoleService = getUserRoleService();
+        userRoleService.invalidateCache(req.params.id);
+        logger.info('User role cache invalidated after Bitrix24 ID update', {
+          userId: req.params.id,
+          bitrix24UserId: bitrix24UserId || 'cleared'
+        });
+      } catch (cacheError) {
+        logger.warn('Failed to invalidate user role cache', { error: cacheError.message });
+      }
+    }
 
     // Audit log
     await db.collection('audit-logs').add({
@@ -1317,8 +1350,18 @@ router.get('/profile', async (req, res) => {
         } : null,
         lastLogin: userData.lastLogin ? {
           _seconds: userData.lastLogin.seconds || userData.lastLogin._seconds || Math.floor(new Date(userData.lastLogin).getTime() / 1000)
-        } : null
-      }
+        } : null,
+        bitrix24UserId: userData.bitrix24UserId || null
+      },
+      bitrix24Enabled: await (async () => {
+        try {
+          const configManager = await getConfigManager();
+          const bitrix24Config = await configManager.getPlatform('bitrix24');
+          return bitrix24Config?.enabled || false;
+        } catch (e) {
+          return false;
+        }
+      })()
     });
   } catch (error) {
     logger.error('Profile page error', {
@@ -1337,7 +1380,7 @@ router.put('/api/profile', async (req, res) => {
   try {
     const db = getFirestore();
     const bcrypt = require('bcrypt');
-    const { email, currentPassword, newPassword, profilePicture } = req.body;
+    const { email, currentPassword, newPassword, profilePicture, bitrix24UserId } = req.body;
 
     const userDoc = await db.collection('users').doc(req.user.id).get();
     if (!userDoc.exists) {
@@ -1346,6 +1389,28 @@ router.put('/api/profile', async (req, res) => {
 
     const userData = userDoc.data();
     const updates = {};
+
+    // Update Bitrix24 User ID if provided
+    if (bitrix24UserId !== undefined) {
+      // Validate - must be numeric or null/empty
+      if (bitrix24UserId && !/^\d+$/.test(String(bitrix24UserId))) {
+        return res.status(400).json({ error: 'Bitrix24 User ID must be a numeric value' });
+      }
+      updates.bitrix24UserId = bitrix24UserId || null;
+
+      // Also invalidate user role cache so new mapping takes effect immediately
+      try {
+        const { getUserRoleService } = require('../services/userRoleService');
+        const userRoleService = getUserRoleService();
+        userRoleService.invalidateCache(req.user.id);
+        logger.info('User role cache invalidated after Bitrix24 ID update', {
+          userId: req.user.id,
+          bitrix24UserId: bitrix24UserId || 'cleared'
+        });
+      } catch (cacheError) {
+        logger.warn('Failed to invalidate user role cache', { error: cacheError.message });
+      }
+    }
 
     // Update email if provided
     if (email !== undefined && email !== userData.email) {
